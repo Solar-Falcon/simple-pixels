@@ -1,6 +1,6 @@
 [package]
 name = "simple-pixels"
-version = "0.1.0"
+version = "0.2.0"
 description = "Create a window and throw some pixels on it without accessing low-level stuff, carrying tons of dependencies or linking C libraries"
 authors = ["Solar-Falcon"]
 edition = "2021"

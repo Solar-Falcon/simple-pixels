@@ -4,7 +4,7 @@ pub extern crate rgb;
 
 use std::time::{Duration, Instant};
 
-use fnv::FnvHashSet;
+use fnv::FnvHashMap;
 
 use miniquad::conf::Conf;
 use miniquad::*;
@@ -54,6 +54,14 @@ void main() {
     gl_FragColor = texture2D(tex, texcoord);
 }"#;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum InputState {
+    Pressed,
+    Down,
+    Released,
+}
+
 #[derive(Debug)]
 struct Window {
     width: u32,
@@ -68,12 +76,12 @@ struct Window {
     clear_color: RGBA8,
     buffer: Vec<RGBA8>,
 
-    key_codes: FnvHashSet<KeyCode>,
+    keys: FnvHashMap<KeyCode, InputState>,
     key_mods: KeyMods,
     key_repeated: bool,
 
     mouse_pos: (f32, f32),
-    mouse_buttons: FnvHashSet<MouseButton>,
+    mouse_buttons: FnvHashMap<MouseButton, InputState>,
 }
 
 impl Window {
@@ -137,7 +145,7 @@ impl Window {
             clear_color: black,
             buffer: vec![black; (width * height) as usize],
 
-            key_codes: FnvHashSet::default(),
+            keys: FnvHashMap::default(),
             key_mods: KeyMods {
                 shift: false,
                 ctrl: false,
@@ -147,7 +155,7 @@ impl Window {
             key_repeated: false,
 
             mouse_pos: (0., 0.),
-            mouse_buttons: FnvHashSet::default(),
+            mouse_buttons: FnvHashMap::default(),
         }
     }
 }
@@ -179,8 +187,23 @@ impl<'a> Context<'a> {
     }
 
     #[inline]
+    pub fn get_key_state(&self, key: KeyCode) -> Option<InputState> {
+        self.win.keys.get(&key).copied()
+    }
+
+    #[inline]
     pub fn is_key_down(&self, key: KeyCode) -> bool {
-        self.win.key_codes.contains(&key)
+        self.get_key_state(key).map_or(false, |state| state != InputState::Released)
+    }
+
+    #[inline]
+    pub fn is_key_pressed(&self, key: KeyCode) -> bool {
+        self.get_key_state(key).map_or(false, |state| state == InputState::Pressed)
+    }
+
+    #[inline]
+    pub fn is_key_released(&self, key: KeyCode) -> bool {
+        self.get_key_state(key).map_or(false, |state| state == InputState::Released)
     }
 
     #[inline]
@@ -206,8 +229,23 @@ impl<'a> Context<'a> {
     }
 
     #[inline]
+    pub fn get_mouse_button_state(&self, button: MouseButton) -> Option<InputState> {
+        self.win.mouse_buttons.get(&button).copied()
+    }
+
+    #[inline]
     pub fn is_mouse_button_down(&self, button: MouseButton) -> bool {
-        self.win.mouse_buttons.contains(&button)
+        self.get_mouse_button_state(button).map_or(false, |state| state != InputState::Released)
+    }
+
+    #[inline]
+    pub fn is_mouse_button_pressed(&self, button: MouseButton) -> bool {
+        self.get_mouse_button_state(button).map_or(false, |state| state == InputState::Pressed)
+    }
+
+    #[inline]
+    pub fn is_mouse_button_released(&self, button: MouseButton) -> bool {
+        self.get_mouse_button_state(button).map_or(false, |state| state == InputState::Released)
     }
 
     #[inline]
@@ -304,6 +342,28 @@ impl EventHandler for Handler {
         };
 
         self.state.update(&mut context);
+        
+        self.win.keys.retain(|_, state| {
+            match state {
+                InputState::Down => true,
+                InputState::Pressed => {
+                    *state = InputState::Down;
+                    true
+                },
+                InputState::Released => false,
+            }
+        });
+
+        self.win.mouse_buttons.retain(|_, state| {
+            match state {
+                InputState::Down => true,
+                InputState::Pressed => {
+                    *state = InputState::Down;
+                    true
+                },
+                InputState::Released => false,
+            }
+        });
     }
 
     fn draw(&mut self, ctx: &mut GraphicsContext) {
@@ -335,7 +395,7 @@ impl EventHandler for Handler {
         key_mods: KeyMods,
         repeat: bool,
     ) {
-        self.win.key_codes.insert(key_code);
+        self.win.keys.insert(key_code, InputState::Pressed);
         self.win.key_mods = key_mods;
         self.win.key_repeated = repeat;
     }
@@ -346,7 +406,7 @@ impl EventHandler for Handler {
         key_code: KeyCode,
         key_mods: KeyMods,
     ) {
-        self.win.key_codes.remove(&key_code);
+        self.win.keys.insert(key_code, InputState::Released);
         self.win.key_mods = key_mods;
     }
 
@@ -361,7 +421,7 @@ impl EventHandler for Handler {
         _x: f32,
         _y: f32,
     ) {
-        self.win.mouse_buttons.insert(button);
+        self.win.mouse_buttons.insert(button, InputState::Pressed);
     }
 
     fn mouse_button_up_event(
@@ -371,7 +431,7 @@ impl EventHandler for Handler {
         _x: f32,
         _y: f32,
     ) {
-        self.win.mouse_buttons.remove(&button);
+        self.win.mouse_buttons.insert(button, InputState::Released);
     }
 }
 
