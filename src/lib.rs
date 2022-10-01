@@ -395,7 +395,7 @@ impl EventHandler for Handler {
         key_mods: KeyMods,
         repeat: bool,
     ) {
-        self.win.keys.insert(key_code, InputState::Pressed);
+        self.win.keys.entry(key_code).or_insert(InputState::Pressed);
         self.win.key_mods = key_mods;
         self.win.key_repeated = repeat;
     }
@@ -421,7 +421,7 @@ impl EventHandler for Handler {
         _x: f32,
         _y: f32,
     ) {
-        self.win.mouse_buttons.insert(button, InputState::Pressed);
+        self.win.mouse_buttons.entry(button).or_insert(InputState::Pressed);
     }
 
     fn mouse_button_up_event(
