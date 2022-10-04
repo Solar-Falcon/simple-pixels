@@ -78,7 +78,6 @@ struct Window {
 
     keys: FnvHashMap<KeyCode, InputState>,
     key_mods: KeyMods,
-    key_repeated: bool,
 
     mouse_pos: (f32, f32),
     mouse_buttons: FnvHashMap<MouseButton, InputState>,
@@ -152,7 +151,6 @@ impl Window {
                 alt: false,
                 logo: false
             },
-            key_repeated: false,
 
             mouse_pos: (0., 0.),
             mouse_buttons: FnvHashMap::default(),
@@ -209,11 +207,6 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn get_key_mods(&self) -> KeyMods {
         self.win.key_mods
-    }
-
-    #[inline]
-    pub fn is_key_repeated(&self) -> bool {
-        self.win.key_repeated
     }
 
     #[inline]
@@ -395,9 +388,10 @@ impl EventHandler for Handler {
         key_mods: KeyMods,
         repeat: bool,
     ) {
-        self.win.keys.entry(key_code).or_insert(InputState::Pressed);
+        if !repeat {
+            self.win.keys.insert(key_code, InputState::Pressed);
+        }
         self.win.key_mods = key_mods;
-        self.win.key_repeated = repeat;
     }
 
     fn key_up_event(
@@ -421,7 +415,7 @@ impl EventHandler for Handler {
         _x: f32,
         _y: f32,
     ) {
-        self.win.mouse_buttons.entry(button).or_insert(InputState::Pressed);
+        self.win.mouse_buttons.insert(button, InputState::Pressed);
     }
 
     fn mouse_button_up_event(
