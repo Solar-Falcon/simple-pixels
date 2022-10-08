@@ -277,7 +277,7 @@ impl<'a> Context<'a> {
         self.win.buffer[y as usize * self.win.width as usize + x as usize] = color;
     }
 
-    pub fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: RGBA8) {
+    pub fn draw_rect(&mut self, x: i32, y: i32, width: i32, height: i32, color: RGBA8) {
         for y in (y as usize)..(y as usize + height as usize) {
             for x in (x as usize)..(x as usize + width as usize) {
                 self.win.buffer[y * self.win.width as usize + x] = color;
@@ -285,7 +285,7 @@ impl<'a> Context<'a> {
         }
     }
     
-    pub fn draw_pixels(&mut self, x: i32, y: i32, width: u32, height: u32, pixels: &[RGBA8]) {
+    pub fn draw_pixels(&mut self, x: i32, y: i32, width: i32, height: i32, pixels: &[RGBA8]) {
         for iy in 0..(height as usize) {
             for ix in 0..(width as usize) {
                 self.win.buffer[(iy + y as usize) * self.win.width as usize + ix + x as usize] = pixels[iy * width as usize + ix];
