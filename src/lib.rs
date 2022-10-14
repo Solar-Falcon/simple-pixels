@@ -2,6 +2,7 @@ extern crate fnv;
 extern crate miniquad;
 pub extern crate rgb;
 
+use std::cmp::min;
 use std::time::{Duration, Instant};
 
 use fnv::FnvHashMap;
@@ -273,29 +274,37 @@ impl<'a> Context<'a> {
     }
 
     #[inline]
-    pub fn draw_pixel(&mut self, x: i32, y: i32, color: RGBA8) {
-        self.win.buffer[y as usize * self.win.width as usize + x as usize] = color;
+    pub fn draw_pixel(&mut self, x: u32, y: u32, color: RGBA8) {
+        if let Some(pix) = self.win.buffer.get_mut(y as usize * self.win.width as usize + x as usize) {
+            *pix = color;
+        }
     }
 
-    pub fn draw_rect(&mut self, x: i32, y: i32, width: i32, height: i32, color: RGBA8) {
-        for y in (y as usize)..(y as usize + height as usize) {
-            for x in (x as usize)..(x as usize + width as usize) {
+    pub fn draw_rect(&mut self, x: u32, y: u32, width: u32, height: u32, color: RGBA8) {
+        for y in (y as usize)..((y + min(height, self.win.height)) as usize) {
+            for x in (x as usize)..((x + min(width, self.win.width)) as usize) {
                 self.win.buffer[y * self.win.width as usize + x] = color;
             }
         }
     }
     
-    pub fn draw_pixels(&mut self, x: i32, y: i32, width: i32, height: i32, pixels: &[RGBA8]) {
-        for iy in 0..(height as usize) {
-            for ix in 0..(width as usize) {
-                self.win.buffer[(iy + y as usize) * self.win.width as usize + ix + x as usize] = pixels[iy * width as usize + ix];
-            }
+    pub fn draw_pixels(&mut self, x: u32, y: u32, width: u32, height: u32, pixels: &[RGBA8]) {
+        let min_width = min(width, self.win.width) as usize;
+        let min_height = min(height, self.win.height) as usize;
+
+        for (iy, line) in pixels.chunks_exact(width as usize).enumerate().take(min_height) {
+            let offset = (iy + y as usize) * self.win.width as usize + x as usize;
+
+            (&mut self.win.buffer[offset..(offset + min_width)]).copy_from_slice(&line[..min_width]);
         }
     }
 
-    #[inline]
     pub fn draw_screen(&mut self, pixels: &[RGBA8]) {
-        self.win.buffer.copy_from_slice(pixels);
+        for (iy, line) in pixels.chunks_exact(self.win.width as usize).enumerate().take(self.win.height as usize) {
+            let offset = iy * self.win.width as usize;
+
+            (&mut self.win.buffer[offset..(offset + self.win.width as usize)]).copy_from_slice(&line[..(self.win.width as usize)]);
+        }
     }
 
     #[inline]
