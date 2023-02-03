@@ -295,7 +295,7 @@ impl<'a> Context<'a> {
         for (iy, line) in pixels.chunks_exact(width as usize).enumerate().take(min_height) {
             let offset = (iy + y as usize) * self.win.width as usize + x as usize;
 
-            (&mut self.win.buffer[offset..(offset + min_width)]).copy_from_slice(&line[..min_width]);
+            self.win.buffer[offset..(offset + min_width)].copy_from_slice(&line[..min_width]);
         }
     }
 
@@ -303,7 +303,7 @@ impl<'a> Context<'a> {
         for (iy, line) in pixels.chunks_exact(self.win.width as usize).enumerate().take(self.win.height as usize) {
             let offset = iy * self.win.width as usize;
 
-            (&mut self.win.buffer[offset..(offset + self.win.width as usize)]).copy_from_slice(&line[..(self.win.width as usize)]);
+            self.win.buffer[offset..(offset + self.win.width as usize)].copy_from_slice(&line[..(self.win.width as usize)]);
         }
     }
 
