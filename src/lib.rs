@@ -281,21 +281,25 @@ impl<'a> Context<'a> {
     }
 
     pub fn draw_rect(&mut self, x: u32, y: u32, width: u32, height: u32, color: RGBA8) {
-        for y in (y as usize)..((y + min(height, self.win.height)) as usize) {
-            for x in (x as usize)..((x + min(width, self.win.width)) as usize) {
-                self.win.buffer[y * self.win.width as usize + x] = color;
+        for y in y..min(y + height, self.win.height) {
+            for x in x..min(x + width, self.win.width) {
+                self.win.buffer[(y * self.win.width + x) as usize] = color;
             }
         }
     }
     
     pub fn draw_pixels(&mut self, x: u32, y: u32, width: u32, height: u32, pixels: &[RGBA8]) {
-        let min_width = min(width, self.win.width) as usize;
-        let min_height = min(height, self.win.height) as usize;
+        let max_width = min(width, self.win.width.saturating_sub(x)) as usize;
+        let max_height = min(height, self.win.height.saturating_sub(y)) as usize;
 
-        for (iy, line) in pixels.chunks_exact(width as usize).enumerate().take(min_height) {
+        if max_width == 0 || max_height == 0 {
+            return;
+        }
+
+        for (iy, line) in pixels.chunks_exact(width as usize).enumerate().take(max_height) {
             let offset = (iy + y as usize) * self.win.width as usize + x as usize;
 
-            self.win.buffer[offset..(offset + min_width)].copy_from_slice(&line[..min_width]);
+            self.win.buffer[offset..(offset + max_width)].copy_from_slice(&line[..max_width]);
         }
     }
 
