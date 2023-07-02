@@ -9,7 +9,6 @@ use fnv::FnvHashMap;
 
 use miniquad::conf::Conf;
 use miniquad::*;
-pub use miniquad::conf::Icon;
 pub use miniquad::{KeyCode, KeyMods, MouseButton, FilterMode};
 
 use rgb::{ComponentBytes, RGBA8};
@@ -20,7 +19,27 @@ pub struct Config {
     pub window_width: u32,
     pub window_height: u32,
     pub fullscreen: bool,
-    pub icon: Option<Icon>,
+    pub high_dpi: bool,
+    pub icon: Option<Box<Icon>>,
+}
+
+#[derive(Debug)]
+pub struct Icon {
+    pub small: [RGBA8; 16*16],
+    pub medium: [RGBA8; 32*32],
+    pub large: [RGBA8; 64*64],
+}
+
+impl Icon {
+    pub fn to_miniquad_icon(self) -> miniquad::conf::Icon {
+        assert_eq!(std::mem::size_of::<RGBA8>(), 4);
+
+        miniquad::conf::Icon {
+            small: unsafe { std::mem::transmute(self.small) },
+            medium: unsafe { std::mem::transmute(self.medium) },
+            big: unsafe { std::mem::transmute(self.large) },
+        }
+    }
 }
 
 #[repr(C)]
@@ -173,6 +192,16 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn height(&self) -> u32 {
         self.win.height
+    }
+
+    #[inline]
+    pub fn dpi_scale(&self) -> f32 {
+        self.ctx.dpi_scale()
+    }
+
+    #[inline]
+    pub fn screen_size(&self) -> (f32, f32) {
+        self.ctx.screen_size()
     }
 
     #[inline]
@@ -448,8 +477,9 @@ pub fn start(config: Config, state: impl State) {
         window_width: config.window_width as i32,
         window_height: config.window_height as i32,
         fullscreen: config.fullscreen,
+        high_dpi: config.high_dpi,
         window_resizable: false,
-        icon: config.icon,
+        icon: config.icon.map(|icon| icon.to_miniquad_icon()),
         ..Default::default()
     };
 
