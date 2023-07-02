@@ -31,7 +31,7 @@ pub struct Icon {
 }
 
 impl Icon {
-    fn to_miniquad_icon(self) -> miniquad::conf::Icon {
+    fn into_miniquad_icon(self) -> miniquad::conf::Icon {
         assert_eq!(std::mem::size_of::<RGBA8>(), 4);
 
         miniquad::conf::Icon {
@@ -58,7 +58,7 @@ const SHADER_VERT: &str = r#"#version 100
 attribute vec2 pos;
 attribute vec2 uv;
 
-varying lowp vec2 texcoord;
+varying highp vec2 texcoord;
 
 void main() {
     gl_Position = vec4(pos.x, pos.y, 0.0, 1.0);
@@ -66,7 +66,7 @@ void main() {
 }"#;
 
 const SHADER_FRAG: &str = r#"#version 100
-varying lowp vec2 texcoord;
+varying highp vec2 texcoord;
 
 uniform sampler2D tex;
 
@@ -479,7 +479,7 @@ pub fn start(config: Config, state: impl State) {
         fullscreen: config.fullscreen,
         high_dpi: config.high_dpi,
         window_resizable: false,
-        icon: config.icon.map(|icon| icon.to_miniquad_icon()),
+        icon: config.icon.map(|icon| icon.into_miniquad_icon()),
         ..Default::default()
     };
 
