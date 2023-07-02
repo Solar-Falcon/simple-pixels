@@ -31,7 +31,7 @@ pub struct Icon {
 }
 
 impl Icon {
-    pub fn to_miniquad_icon(self) -> miniquad::conf::Icon {
+    fn to_miniquad_icon(self) -> miniquad::conf::Icon {
         assert_eq!(std::mem::size_of::<RGBA8>(), 4);
 
         miniquad::conf::Icon {
