@@ -9,7 +9,7 @@ use fnv::FnvHashMap;
 
 use miniquad::conf::Conf;
 use miniquad::*;
-pub use miniquad::{KeyCode, KeyMods, MouseButton, FilterMode};
+pub use miniquad::{KeyCode, KeyMods, MouseButton, FilterMode, CursorIcon};
 
 use rgb::{ComponentBytes, RGBA8};
 
@@ -275,27 +275,33 @@ impl<'a> Context<'a> {
     pub fn quit(&mut self) {
         self.ctx.quit();
     }
-    
+
     #[inline]
     pub fn show_mouse(&mut self, shown: bool) {
         self.ctx.show_mouse(shown);
     }
-    
+
+    #[inline]
+    pub fn set_mouse_cursor(&mut self, cursor_icon: CursorIcon) {
+        self.ctx.set_mouse_cursor(cursor_icon);
+    }
+
     #[inline]
     pub fn set_fullscreen(&mut self, fullscreen: bool) {
         self.ctx.set_fullscreen(fullscreen);
     }
-    
+
     #[inline]
     pub fn get_clipboard(&mut self) -> Option<String> {
         self.ctx.clipboard_get()
     }
-    
+
     #[inline]
     pub fn set_clipboard(&mut self, data: &str) {
         self.ctx.clipboard_set(data);
     }
 
+    #[inline]
     pub fn clear(&mut self) {
         for pix in self.win.buffer.iter_mut() {
             *pix = self.win.clear_color;
@@ -316,7 +322,7 @@ impl<'a> Context<'a> {
             }
         }
     }
-    
+
     pub fn draw_pixels(&mut self, x: u32, y: u32, width: u32, height: u32, pixels: &[RGBA8]) {
         let max_width = min(width, self.win.width.saturating_sub(x)) as usize;
         let max_height = min(height, self.win.height.saturating_sub(y)) as usize;
@@ -350,6 +356,7 @@ impl<'a> Context<'a> {
         &mut self.win.buffer
     }
 
+    #[inline]
     pub fn set_filter_mode(&mut self, filter: FilterMode) {
         let texture = &self.win.bindings.images[0];
         texture.set_filter(self.ctx, filter);
@@ -377,7 +384,7 @@ impl EventHandler for Handler {
         };
 
         self.state.update(&mut context);
-        
+
         self.win.keys.retain(|_, state| {
             match state {
                 InputState::Down => true,
@@ -408,7 +415,7 @@ impl EventHandler for Handler {
         };
 
         self.state.draw(&mut context);
-        
+
         let texture = &self.win.bindings.images[0];
         texture.update(ctx, self.win.buffer.as_bytes());
 
