@@ -376,7 +376,7 @@ impl<'a> Context<'a> {
     /// 
     /// Does nothing if the position is outside the screen.
     #[inline]
-    pub fn draw_pixel(&mut self, x: u32, y: u32, color: RGBA8) {
+    pub fn draw_pixel(&mut self, x: i32, y: i32, color: RGBA8) {
         if let Some(pix) = self.win.buffer.get_mut(y as usize * self.win.width as usize + x as usize) {
             *pix = color;
         }
@@ -385,7 +385,19 @@ impl<'a> Context<'a> {
     /// Draw a colored rectangle.
     /// 
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
-    pub fn draw_rect(&mut self, x: u32, y: u32, width: u32, height: u32, color: RGBA8) {
+    pub fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: RGBA8) {
+        let (x, width) = if x < 0 {
+            (0, width.saturating_sub(x.unsigned_abs()))
+        } else {
+            (x as u32, width)
+        };
+
+        let (y, height) = if y < 0 {
+            (0, height.saturating_sub(y.unsigned_abs()))
+        } else {
+            (y as u32, height)
+        };
+        
         for y in y..min(y + height, self.win.height) {
             for x in x..min(x + width, self.win.width) {
                 self.win.buffer[(y * self.win.width + x) as usize] = color;
@@ -396,13 +408,21 @@ impl<'a> Context<'a> {
     /// Fills a rectangle with provided pixels (row-major order).
     /// 
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
-    pub fn draw_pixels(&mut self, x: u32, y: u32, width: u32, height: u32, pixels: &[RGBA8]) {
+    pub fn draw_pixels(&mut self, x: i32, y: i32, width: u32, height: u32, pixels: &[RGBA8]) {
+        let (x, width) = if x < 0 {
+            (0, width.saturating_sub(x.unsigned_abs()))
+        } else {
+            (x as u32, width)
+        };
+
+        let (y, height) = if y < 0 {
+            (0, height.saturating_sub(y.unsigned_abs()))
+        } else {
+            (y as u32, height)
+        };
+
         let max_width = min(width, self.win.width.saturating_sub(x)) as usize;
         let max_height = min(height, self.win.height.saturating_sub(y)) as usize;
-
-        if max_width == 0 || max_height == 0 {
-            return;
-        }
 
         for (iy, line) in pixels.chunks_exact(width as usize).enumerate().take(max_height) {
             let offset = (iy + y as usize) * self.win.width as usize + x as usize;
