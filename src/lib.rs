@@ -1,3 +1,6 @@
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
 extern crate fnv;
 extern crate miniquad;
 pub extern crate rgb;
@@ -9,24 +12,38 @@ use fnv::FnvHashMap;
 
 use miniquad::conf::Conf;
 use miniquad::*;
+#[doc(no_inline)]
 pub use miniquad::{KeyCode, KeyMods, MouseButton, FilterMode, CursorIcon};
 
 use rgb::{ComponentBytes, RGBA8};
 
+/// Application window settings.
 #[derive(Debug)]
 pub struct Config {
+    /// Title of the window
     pub window_title: String,
+    /// Width of the window
     pub window_width: u32,
+    /// Height of the window
     pub window_height: u32,
+    /// Whether the window should be created in fullscreen mode
     pub fullscreen: bool,
+    /// Whether the rendering canvas is full-resolution on HighDPI displays.
+    /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
     pub high_dpi: bool,
+    /// An optional icon for the window taskbar
+    /// Only works on Windows as of currently used version of `miniquad`.
     pub icon: Option<Box<Icon>>,
 }
 
+/// Icon image in three levels of detail.
 #[derive(Debug)]
 pub struct Icon {
+    /// 16x16 image (RGBA, row-major order)
     pub small: [RGBA8; 16*16],
+    /// 32x32 image (RGBA, row-major order)
     pub medium: [RGBA8; 32*32],
+    /// 64x64 image (RGBA, row-major order)
     pub large: [RGBA8; 64*64],
 }
 
@@ -74,11 +91,15 @@ void main() {
     gl_FragColor = texture2D(tex, texcoord);
 }"#;
 
+/// Input state of a mouse/keyboard button
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum InputState {
+    /// The button has just been pressed.
     Pressed,
+    /// The button is being held down.
     Down,
+    /// The button has just been released.
     Released,
 }
 
@@ -178,72 +199,102 @@ impl Window {
     }
 }
 
+/// An object that holds the app's global state.
 pub struct Context<'a> {
     win: &'a mut Window,
     ctx: &'a mut GraphicsContext,
 }
 
 impl<'a> Context<'a> {
+    /// Display width (returns the value provided in [`Config`])
+    /// 
+    /// Does not account for dpi scale.
     #[inline]
     pub fn width(&self) -> u32 {
         self.win.width
     }
 
+    /// Display height (returns the value provided in [`Config`])
+    /// 
+    /// Does not account for dpi scale.
     #[inline]
     pub fn height(&self) -> u32 {
         self.win.height
     }
 
+    /// The dpi scaling factor (window pixels to framebuffer pixels).
+    /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
+    /// 
+    /// Always 1.0 if `high_dpi` in [`Config`] is set to `false`.
     #[inline]
     pub fn dpi_scale(&self) -> f32 {
         self.ctx.dpi_scale()
     }
 
+    /// The current framebuffer size in pixels.
+    /// Accounts for dpi scale. See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
     #[inline]
     pub fn screen_size(&self) -> (f32, f32) {
         self.ctx.screen_size()
     }
 
+    /// Time passed between previous and current frame.
     #[inline]
     pub fn delta_time(&self) -> Duration {
         self.win.delta_time
     }
 
+    /// Set clear/background color.
+    /// 
+    /// The buffer isn't cleared automatically, use [`Context::clear()`] for that.
     #[inline]
     pub fn clear_color(&mut self, color: RGBA8) {
         self.win.clear_color = color;
     }
 
+    /// Returns current input state of a key or `None` if it isn't held.
+    /// 
+    /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
     #[inline]
     pub fn get_key_state(&self, key: KeyCode) -> Option<InputState> {
         self.win.keys.get(&key).copied()
     }
 
+    /// Returns `true` if a key is down.
     #[inline]
     pub fn is_key_down(&self, key: KeyCode) -> bool {
         self.get_key_state(key).map_or(false, |state| state != InputState::Released)
     }
 
+    /// Returns `true` if a key has just been pressed.
     #[inline]
     pub fn is_key_pressed(&self, key: KeyCode) -> bool {
         self.get_key_state(key).map_or(false, |state| state == InputState::Pressed)
     }
 
+    /// Returns `true` if a key has just been released.
     #[inline]
     pub fn is_key_released(&self, key: KeyCode) -> bool {
         self.get_key_state(key).map_or(false, |state| state == InputState::Released)
     }
 
+    /// Returns currently held key modifiers.
     #[inline]
     pub fn get_key_mods(&self) -> KeyMods {
         self.win.key_mods
     }
 
+    /// Returns current mouse position.
+    /// 
+    /// Note that it does not account for dpi scale.
     #[inline]
     pub fn get_mouse_pos(&self) -> (f32, f32) {
         self.win.mouse_pos
     }
 
+    /// Returns current mouse position rounded to the nearest integer.
+    /// 
+    /// Note that it does not account for dpi scale.
     #[inline]
     pub fn get_mouse_pos_int(&self) -> (i32, i32) {
         let (x, y) = self.win.mouse_pos;
@@ -251,56 +302,69 @@ impl<'a> Context<'a> {
         (x.round() as i32, y.round() as i32)
     }
 
+    /// Returns current input state of a mouse button or `None` if it isn't held.
+    /// 
+    /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
     #[inline]
     pub fn get_mouse_button_state(&self, button: MouseButton) -> Option<InputState> {
         self.win.mouse_buttons.get(&button).copied()
     }
 
+    /// Returns `true` if a mouse button is down.
     #[inline]
     pub fn is_mouse_button_down(&self, button: MouseButton) -> bool {
         self.get_mouse_button_state(button).map_or(false, |state| state != InputState::Released)
     }
 
+    /// Returns `true` if a mouse button has just been pressed.
     #[inline]
     pub fn is_mouse_button_pressed(&self, button: MouseButton) -> bool {
         self.get_mouse_button_state(button).map_or(false, |state| state == InputState::Pressed)
     }
 
+    /// Returns `true` if a mouse button has just been released.
     #[inline]
     pub fn is_mouse_button_released(&self, button: MouseButton) -> bool {
         self.get_mouse_button_state(button).map_or(false, |state| state == InputState::Released)
     }
 
+    /// Quit the application.
     #[inline]
     pub fn quit(&mut self) {
         self.ctx.quit();
     }
 
+    /// Show or hide the mouse cursor.
     #[inline]
     pub fn show_mouse(&mut self, shown: bool) {
         self.ctx.show_mouse(shown);
     }
 
+    /// Set the mouse cursor icon.
     #[inline]
     pub fn set_mouse_cursor(&mut self, cursor_icon: CursorIcon) {
         self.ctx.set_mouse_cursor(cursor_icon);
     }
 
+    /// Set window to fullscreen or not.
     #[inline]
     pub fn set_fullscreen(&mut self, fullscreen: bool) {
         self.ctx.set_fullscreen(fullscreen);
     }
 
+    /// Get current OS clipboard value.
     #[inline]
     pub fn get_clipboard(&mut self) -> Option<String> {
         self.ctx.clipboard_get()
     }
 
+    /// Save value to OS clipboard.
     #[inline]
     pub fn set_clipboard(&mut self, data: &str) {
         self.ctx.clipboard_set(data);
     }
 
+    /// Clear the buffer with the current [`Context::clear_color()`].
     #[inline]
     pub fn clear(&mut self) {
         for pix in self.win.buffer.iter_mut() {
@@ -308,6 +372,9 @@ impl<'a> Context<'a> {
         }
     }
 
+    /// Draw a pixels at (x, y).
+    /// 
+    /// Does nothing if the position is outside the screen.
     #[inline]
     pub fn draw_pixel(&mut self, x: u32, y: u32, color: RGBA8) {
         if let Some(pix) = self.win.buffer.get_mut(y as usize * self.win.width as usize + x as usize) {
@@ -315,6 +382,9 @@ impl<'a> Context<'a> {
         }
     }
 
+    /// Draw a colored rectangle.
+    /// 
+    /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_rect(&mut self, x: u32, y: u32, width: u32, height: u32, color: RGBA8) {
         for y in y..min(y + height, self.win.height) {
             for x in x..min(x + width, self.win.width) {
@@ -323,6 +393,9 @@ impl<'a> Context<'a> {
         }
     }
 
+    /// Fills a rectangle with provided pixels (row-major order).
+    /// 
+    /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_pixels(&mut self, x: u32, y: u32, width: u32, height: u32, pixels: &[RGBA8]) {
         let max_width = min(width, self.win.width.saturating_sub(x)) as usize;
         let max_height = min(height, self.win.height.saturating_sub(y)) as usize;
@@ -337,7 +410,10 @@ impl<'a> Context<'a> {
             self.win.buffer[offset..(offset + max_width)].copy_from_slice(&line[..max_width]);
         }
     }
-
+    
+    /// Fills the entire screen buffer at once.
+    /// 
+    /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_screen(&mut self, pixels: &[RGBA8]) {
         for (iy, line) in pixels.chunks_exact(self.win.width as usize).enumerate().take(self.win.height as usize) {
             let offset = iy * self.win.width as usize;
@@ -346,16 +422,23 @@ impl<'a> Context<'a> {
         }
     }
 
+    /// Returns the screen buffer.
     #[inline]
     pub fn get_draw_buffer(&self) -> &[RGBA8] {
         &self.win.buffer
     }
 
+    /// Returns the screen buffer.
+    /// 
+    /// Can be used for drawing.
     #[inline]
     pub fn get_mut_draw_buffer(&mut self) -> &mut [RGBA8] {
         &mut self.win.buffer
     }
 
+    /// Sets the filter mode.
+    /// 
+    /// The default one is `nearest`.
     #[inline]
     pub fn set_filter_mode(&mut self, filter: FilterMode) {
         let texture = &self.win.bindings.images[0];
@@ -363,8 +446,14 @@ impl<'a> Context<'a> {
     }
 }
 
+/// Application state.
 pub trait State: 'static {
+    /// Called every frame.
     fn update(&mut self, ctx: &mut Context);
+    /// Called every frame after `update()`.
+    /// See <https://docs.rs/miniquad/0.3.16/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
+    /// 
+    /// Note that in `simple-pixels` it's still safe to draw in `update()`.
     fn draw(&mut self, ctx: &mut Context);
 }
 
@@ -478,6 +567,7 @@ impl EventHandler for Handler {
     }
 }
 
+/// Start the application using provided config and state.
 pub fn start(config: Config, state: impl State) {
     let conf = Conf {
         window_title: config.window_title,

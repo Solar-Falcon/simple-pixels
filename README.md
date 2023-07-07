@@ -7,9 +7,6 @@ This may not be the most efficient rendering method, but it should fit for an em
 
 * Simplicity.
 * Minimal dependencies.
+* Safety.
 
-## TODOs
-
-* Documentation. While the structure of the crate is pretty straightforward, it's always good to have docs.
-* Examples.
-* Actually finish this README.
+This crate is built on [`miniquad`](https://crates.io/crates/miniquad).
