@@ -206,6 +206,8 @@ impl Window {
         }
 
         self.buffer.resize((new_width * new_height) as usize, self.clear_color);
+        self.width = new_width;
+        self.height = new_height;
     }
 }
 
@@ -216,7 +218,7 @@ pub struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    /// Display width (returns the value provided in [`Config`])
+    /// Display width.
     /// 
     /// Does not account for dpi scale.
     #[inline]
@@ -224,7 +226,7 @@ impl<'a> Context<'a> {
         self.win.width
     }
 
-    /// Display height (returns the value provided in [`Config`])
+    /// Display height.
     /// 
     /// Does not account for dpi scale.
     #[inline]
@@ -239,13 +241,6 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn dpi_scale(&self) -> f32 {
         self.ctx.dpi_scale()
-    }
-
-    /// The current framebuffer size in pixels.
-    /// Accounts for dpi scale. See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
-    #[inline]
-    pub fn screen_size(&self) -> (f32, f32) {
-        self.ctx.screen_size()
     }
 
     /// Time passed between previous and current frame.
