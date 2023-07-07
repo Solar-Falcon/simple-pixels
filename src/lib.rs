@@ -26,6 +26,8 @@ pub struct Config {
     pub window_width: u32,
     /// Height of the window
     pub window_height: u32,
+    /// Determines if the application user can resize the window.
+    pub window_resizable: bool,
     /// Whether the window should be created in fullscreen mode
     pub fullscreen: bool,
     /// Whether the rendering canvas is full-resolution on HighDPI displays.
@@ -197,6 +199,14 @@ impl Window {
             mouse_buttons: FnvHashMap::default(),
         }
     }
+
+    fn apply_resize(&mut self, new_width: u32, new_height: u32) {
+        for pix in self.buffer.iter_mut() {
+            *pix = self.clear_color;
+        }
+
+        self.buffer.resize((new_width * new_height) as usize, self.clear_color);
+    }
 }
 
 /// An object that holds the app's global state.
@@ -364,7 +374,16 @@ impl<'a> Context<'a> {
         self.ctx.clipboard_set(data);
     }
 
-    /// Clear the buffer with the current [`Context::clear_color()`].
+    /// Set the application’s window size.
+    /// 
+    /// Note that it clears the screen buffer with the current [`Context::clear_color()`], because it needs to be resized as well.
+    #[inline]
+    pub fn set_window_size(&mut self, new_width: u32, new_height: u32) {
+        self.ctx.set_window_size(new_width, new_height);
+        self.win.apply_resize(new_width, new_height);
+    }
+
+    /// Clear the screen buffer with the current [`Context::clear_color()`].
     #[inline]
     pub fn clear(&mut self) {
         for pix in self.win.buffer.iter_mut() {
@@ -585,6 +604,10 @@ impl EventHandler for Handler {
     ) {
         self.win.mouse_buttons.insert(button, InputState::Released);
     }
+
+    fn resize_event(&mut self, _ctx: &mut GraphicsContext, width: f32, height: f32) {
+        self.win.apply_resize(width.round() as u32, height.round() as u32);
+    }
 }
 
 /// Start the application using provided config and state.
@@ -595,7 +618,7 @@ pub fn start(config: Config, state: impl State) {
         window_height: config.window_height as i32,
         fullscreen: config.fullscreen,
         high_dpi: config.high_dpi,
-        window_resizable: false,
+        window_resizable: config.window_resizable,
         icon: config.icon.map(|icon| icon.into_miniquad_icon()),
         ..Default::default()
     };
