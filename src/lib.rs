@@ -20,22 +20,56 @@ use rgb::{ComponentBytes, RGBA8};
 /// Application window settings.
 #[derive(Debug)]
 pub struct Config {
-    /// Title of the window
+    /// Title of the window.
+    /// 
+    /// Default: empty string.
     pub window_title: String,
-    /// Width of the window
+
+    /// Width of the window.
+    /// 
+    /// Default: 800
     pub window_width: u32,
-    /// Height of the window
+
+    /// Height of the window.
+    /// 
+    /// Default: 600
     pub window_height: u32,
+
     /// Determines if the application user can resize the window.
+    /// 
+    /// Default: false
     pub window_resizable: bool,
-    /// Whether the window should be created in fullscreen mode
+
+    /// Whether the window should be created in fullscreen mode.
+    /// 
+    /// Default: false
     pub fullscreen: bool,
+
     /// Whether the rendering canvas is full-resolution on HighDPI displays.
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
+    /// 
+    /// Default: false
     pub high_dpi: bool,
-    /// An optional icon for the window taskbar
+
+    /// An optional icon for the window taskbar.
     /// Only works on Windows as of currently used version of `miniquad`.
+    /// 
+    /// Default: None
     pub icon: Option<Box<Icon>>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            window_title: String::from(""),
+            window_width: 800,
+            window_height: 600,
+            window_resizable: false,
+            fullscreen: false,
+            high_dpi: false,
+            icon: None,
+        }
+    }
 }
 
 /// Icon image in three levels of detail.
