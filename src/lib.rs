@@ -1,8 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-extern crate fnv;
-extern crate miniquad;
 pub extern crate rgb;
 
 use std::cmp::min;
@@ -517,12 +515,12 @@ impl<'a> Context<'a> {
 /// Application state.
 pub trait State: 'static {
     /// Called every frame.
-    fn update(&mut self, ctx: &mut Context);
+    fn update(&mut self, ctx: Context);
     /// Called every frame after `update()`.
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
     /// 
-    /// Note that in `simple-pixels` it's still safe to draw in `update()`.
-    fn draw(&mut self, ctx: &mut Context);
+    /// Note that when using `simple-pixels` it's still safe to draw in `update()`.
+    fn draw(&mut self, ctx: Context);
 }
 
 struct Handler {
@@ -535,12 +533,12 @@ impl EventHandler for Handler {
         self.win.delta_time = self.win.instant.elapsed();
         self.win.instant = Instant::now();
 
-        let mut context = Context {
+        let context = Context {
             win: &mut self.win,
             ctx,
         };
 
-        self.state.update(&mut context);
+        self.state.update(context);
 
         self.win.keys.retain(|_, state| {
             match state {
@@ -566,12 +564,12 @@ impl EventHandler for Handler {
     }
 
     fn draw(&mut self, ctx: &mut GraphicsContext) {
-        let mut context = Context {
+        let context = Context {
             win: &mut self.win,
             ctx,
         };
 
-        self.state.draw(&mut context);
+        self.state.draw(context);
 
         let texture = &self.win.bindings.images[0];
         texture.update(ctx, self.win.buffer.as_bytes());
