@@ -1,7 +1,8 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![warn(missing_docs)]
 
 pub extern crate rgb;
+pub extern crate simple_blit;
 
 use std::cmp::min;
 use std::time::{Duration, Instant};
@@ -10,48 +11,49 @@ use fnv::FnvHashMap;
 
 use miniquad::conf::Conf;
 use miniquad::*;
-#[doc(no_inline)]
-pub use miniquad::{KeyCode, KeyMods, MouseButton, FilterMode, CursorIcon};
 
 use rgb::{ComponentBytes, RGBA8};
+
+#[doc(no_inline)]
+pub use miniquad::{CursorIcon, FilterMode, KeyCode, KeyMods, MouseButton};
 
 /// Application window settings.
 #[derive(Debug)]
 pub struct Config {
     /// Title of the window.
-    /// 
+    ///
     /// Default: empty string.
     pub window_title: String,
 
     /// Width of the window.
-    /// 
+    ///
     /// Default: 800
     pub window_width: u32,
 
     /// Height of the window.
-    /// 
+    ///
     /// Default: 600
     pub window_height: u32,
 
     /// Determines if the application user can resize the window.
-    /// 
+    ///
     /// Default: false
     pub window_resizable: bool,
 
     /// Whether the window should be created in fullscreen mode.
-    /// 
+    ///
     /// Default: false
     pub fullscreen: bool,
 
     /// Whether the rendering canvas is full-resolution on HighDPI displays.
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
-    /// 
+    ///
     /// Default: false
     pub high_dpi: bool,
 
     /// An optional icon for the window taskbar.
     /// Only works on Windows as of currently used version of `miniquad`.
-    /// 
+    ///
     /// Default: None
     pub icon: Option<Box<Icon>>,
 }
@@ -74,11 +76,11 @@ impl Default for Config {
 #[derive(Debug)]
 pub struct Icon {
     /// 16x16 image (RGBA, row-major order)
-    pub small: [RGBA8; 16*16],
+    pub small: [RGBA8; 16 * 16],
     /// 32x32 image (RGBA, row-major order)
-    pub medium: [RGBA8; 32*32],
+    pub medium: [RGBA8; 32 * 32],
     /// 64x64 image (RGBA, row-major order)
-    pub large: [RGBA8; 64*64],
+    pub large: [RGBA8; 64 * 64],
 }
 
 impl Icon {
@@ -161,23 +163,38 @@ struct Window {
 impl Window {
     fn init(ctx: &mut GraphicsContext, width: u32, height: u32) -> Self {
         let vertices: [Vertex; 4] = [
-            Vertex { pos: Vec2 { x: -1., y: -1. }, uv: Vec2 { x: 0., y: 1. } },
-            Vertex { pos: Vec2 { x:  1., y: -1. }, uv: Vec2 { x: 1., y: 1. } },
-            Vertex { pos: Vec2 { x:  1., y:  1. }, uv: Vec2 { x: 1., y: 0. } },
-            Vertex { pos: Vec2 { x: -1., y:  1. }, uv: Vec2 { x: 0., y: 0. } },
+            Vertex {
+                pos: Vec2 { x: -1., y: -1. },
+                uv: Vec2 { x: 0., y: 1. },
+            },
+            Vertex {
+                pos: Vec2 { x: 1., y: -1. },
+                uv: Vec2 { x: 1., y: 1. },
+            },
+            Vertex {
+                pos: Vec2 { x: 1., y: 1. },
+                uv: Vec2 { x: 1., y: 0. },
+            },
+            Vertex {
+                pos: Vec2 { x: -1., y: 1. },
+                uv: Vec2 { x: 0., y: 0. },
+            },
         ];
         let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
 
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
         let index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
 
-        let texture = Texture::new_render_texture(ctx, TextureParams {
-            format: TextureFormat::RGBA8,
-            wrap: TextureWrap::Clamp,
-            filter: FilterMode::Nearest,
-            width,
-            height,
-        });
+        let texture = Texture::new_render_texture(
+            ctx,
+            TextureParams {
+                format: TextureFormat::RGBA8,
+                wrap: TextureWrap::Clamp,
+                filter: FilterMode::Nearest,
+                width,
+                height,
+            },
+        );
 
         let bindings = Bindings {
             vertex_buffers: vec![vertex_buffer],
@@ -187,12 +204,11 @@ impl Window {
 
         let shader_meta = ShaderMeta {
             images: vec!["tex".to_string()],
-            uniforms: UniformBlockLayout {
-                uniforms: vec![],
-            },
+            uniforms: UniformBlockLayout { uniforms: vec![] },
         };
 
-        let shader = Shader::new(ctx, SHADER_VERT, SHADER_FRAG, shader_meta).unwrap_or_else(|err| panic!("{}", err));
+        let shader = Shader::new(ctx, SHADER_VERT, SHADER_FRAG, shader_meta)
+            .unwrap_or_else(|err| panic!("{}", err));
 
         let pipeline = Pipeline::new(
             ctx,
@@ -201,10 +217,8 @@ impl Window {
                 VertexAttribute::new("pos", VertexFormat::Float2),
                 VertexAttribute::new("uv", VertexFormat::Float2),
             ],
-            shader
+            shader,
         );
-
-        let black = RGBA8 { r: 0, g: 0, b: 0, a: 255 };
 
         Self {
             width,
@@ -216,15 +230,15 @@ impl Window {
             instant: Instant::now(),
             delta_time: Duration::ZERO,
 
-            clear_color: black,
-            buffer: vec![black; (width * height) as usize],
+            clear_color: RGBA8::new(0, 0, 0, 255),
+            buffer: vec![RGBA8::new(0, 0, 0, 255); (width * height) as usize],
 
             keys: FnvHashMap::default(),
             key_mods: KeyMods {
                 shift: false,
                 ctrl: false,
                 alt: false,
-                logo: false
+                logo: false,
             },
 
             mouse_pos: (0., 0.),
@@ -237,7 +251,8 @@ impl Window {
             *pix = self.clear_color;
         }
 
-        self.buffer.resize((new_width * new_height) as usize, self.clear_color);
+        self.buffer
+            .resize((new_width * new_height) as usize, self.clear_color);
         self.width = new_width;
         self.height = new_height;
     }
@@ -251,7 +266,7 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
     /// Display width.
-    /// 
+    ///
     /// Does not account for dpi scale.
     #[inline]
     pub fn width(&self) -> u32 {
@@ -259,7 +274,7 @@ impl<'a> Context<'a> {
     }
 
     /// Display height.
-    /// 
+    ///
     /// Does not account for dpi scale.
     #[inline]
     pub fn height(&self) -> u32 {
@@ -268,7 +283,7 @@ impl<'a> Context<'a> {
 
     /// The dpi scaling factor (window pixels to framebuffer pixels).
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
-    /// 
+    ///
     /// Always 1.0 if `high_dpi` in [`Config`] is set to `false`.
     #[inline]
     pub fn dpi_scale(&self) -> f32 {
@@ -282,7 +297,7 @@ impl<'a> Context<'a> {
     }
 
     /// Set clear/background color.
-    /// 
+    ///
     /// The buffer isn't cleared automatically, use [`Context::clear()`] for that.
     #[inline]
     pub fn clear_color(&mut self, color: RGBA8) {
@@ -290,7 +305,7 @@ impl<'a> Context<'a> {
     }
 
     /// Returns current input state of a key or `None` if it isn't held.
-    /// 
+    ///
     /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
     #[inline]
     pub fn get_key_state(&self, key: KeyCode) -> Option<InputState> {
@@ -300,19 +315,22 @@ impl<'a> Context<'a> {
     /// Returns `true` if a key is down.
     #[inline]
     pub fn is_key_down(&self, key: KeyCode) -> bool {
-        self.get_key_state(key).map_or(false, |state| state != InputState::Released)
+        self.get_key_state(key)
+            .map_or(false, |state| state != InputState::Released)
     }
 
     /// Returns `true` if a key has just been pressed.
     #[inline]
     pub fn is_key_pressed(&self, key: KeyCode) -> bool {
-        self.get_key_state(key).map_or(false, |state| state == InputState::Pressed)
+        self.get_key_state(key)
+            .map_or(false, |state| state == InputState::Pressed)
     }
 
     /// Returns `true` if a key has just been released.
     #[inline]
     pub fn is_key_released(&self, key: KeyCode) -> bool {
-        self.get_key_state(key).map_or(false, |state| state == InputState::Released)
+        self.get_key_state(key)
+            .map_or(false, |state| state == InputState::Released)
     }
 
     /// Returns currently held key modifiers.
@@ -322,7 +340,7 @@ impl<'a> Context<'a> {
     }
 
     /// Returns current mouse position.
-    /// 
+    ///
     /// Note that it does not account for dpi scale.
     #[inline]
     pub fn get_mouse_pos(&self) -> (f32, f32) {
@@ -330,17 +348,17 @@ impl<'a> Context<'a> {
     }
 
     /// Returns current mouse position rounded to the nearest integer.
-    /// 
+    ///
     /// Note that it does not account for dpi scale.
     #[inline]
     pub fn get_mouse_pos_int(&self) -> (i32, i32) {
         let (x, y) = self.win.mouse_pos;
-        
-        (x.round() as i32, y.round() as i32)
+
+        (x as i32, y as i32)
     }
 
     /// Returns current input state of a mouse button or `None` if it isn't held.
-    /// 
+    ///
     /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
     #[inline]
     pub fn get_mouse_button_state(&self, button: MouseButton) -> Option<InputState> {
@@ -350,19 +368,22 @@ impl<'a> Context<'a> {
     /// Returns `true` if a mouse button is down.
     #[inline]
     pub fn is_mouse_button_down(&self, button: MouseButton) -> bool {
-        self.get_mouse_button_state(button).map_or(false, |state| state != InputState::Released)
+        self.get_mouse_button_state(button)
+            .map_or(false, |state| state != InputState::Released)
     }
 
     /// Returns `true` if a mouse button has just been pressed.
     #[inline]
     pub fn is_mouse_button_pressed(&self, button: MouseButton) -> bool {
-        self.get_mouse_button_state(button).map_or(false, |state| state == InputState::Pressed)
+        self.get_mouse_button_state(button)
+            .map_or(false, |state| state == InputState::Pressed)
     }
 
     /// Returns `true` if a mouse button has just been released.
     #[inline]
     pub fn is_mouse_button_released(&self, button: MouseButton) -> bool {
-        self.get_mouse_button_state(button).map_or(false, |state| state == InputState::Released)
+        self.get_mouse_button_state(button)
+            .map_or(false, |state| state == InputState::Released)
     }
 
     /// Quit the application.
@@ -402,7 +423,7 @@ impl<'a> Context<'a> {
     }
 
     /// Set the application’s window size.
-    /// 
+    ///
     /// Note that it clears the screen buffer with the current [`Context::clear_color()`], because it needs to be resized as well.
     #[inline]
     pub fn set_window_size(&mut self, new_width: u32, new_height: u32) {
@@ -419,17 +440,21 @@ impl<'a> Context<'a> {
     }
 
     /// Draw a pixels at (x, y).
-    /// 
+    ///
     /// Does nothing if the position is outside the screen.
     #[inline]
     pub fn draw_pixel(&mut self, x: i32, y: i32, color: RGBA8) {
-        if let Some(pix) = self.win.buffer.get_mut(y as usize * self.win.width as usize + x as usize) {
+        if let Some(pix) = self
+            .win
+            .buffer
+            .get_mut(y as usize * self.win.width as usize + x as usize)
+        {
             *pix = color;
         }
     }
 
     /// Draw a colored rectangle.
-    /// 
+    ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: RGBA8) {
         let (x, width) = if x < 0 {
@@ -443,7 +468,7 @@ impl<'a> Context<'a> {
         } else {
             (y as u32, height)
         };
-        
+
         for y in y..min(y + height, self.win.height) {
             for x in x..min(x + width, self.win.width) {
                 self.win.buffer[(y * self.win.width + x) as usize] = color;
@@ -452,58 +477,65 @@ impl<'a> Context<'a> {
     }
 
     /// Fills a rectangle with provided pixels (row-major order).
-    /// 
+    ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_pixels(&mut self, x: i32, y: i32, width: u32, height: u32, pixels: &[RGBA8]) {
-        let (x, width) = if x < 0 {
-            (0, width.saturating_sub(x.unsigned_abs()))
-        } else {
-            (x as u32, width)
-        };
-
-        let (y, height) = if y < 0 {
-            (0, height.saturating_sub(y.unsigned_abs()))
-        } else {
-            (y as u32, height)
-        };
-
-        let max_width = min(width, self.win.width.saturating_sub(x)) as usize;
-        let max_height = min(height, self.win.height.saturating_sub(y)) as usize;
-
-        for (iy, line) in pixels.chunks_exact(width as usize).enumerate().take(max_height) {
-            let offset = (iy + y as usize) * self.win.width as usize + x as usize;
-
-            self.win.buffer[offset..(offset + max_width)].copy_from_slice(&line[..max_width]);
+        if let Some(buffer) = simple_blit::Buffer::new(pixels, width, height) {
+            simple_blit::blit(
+                simple_blit::BufferMut::new(
+                    self.win.buffer.as_mut_slice(),
+                    self.win.width,
+                    self.win.height,
+                )
+                .unwrap(),
+                (x, y),
+                buffer,
+                (0, 0),
+                (width, height),
+            );
         }
     }
-    
+
     /// Fills the entire screen buffer at once.
-    /// 
+    ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_screen(&mut self, pixels: &[RGBA8]) {
-        for (iy, line) in pixels.chunks_exact(self.win.width as usize).enumerate().take(self.win.height as usize) {
-            let offset = iy * self.win.width as usize;
-
-            self.win.buffer[offset..(offset + self.win.width as usize)].copy_from_slice(&line[..(self.win.width as usize)]);
+        if let Some(buffer) = simple_blit::Buffer::new(pixels, self.win.width, self.win.height) {
+            simple_blit::blit_full(
+                simple_blit::BufferMut::new(
+                    self.win.buffer.as_mut_slice(),
+                    self.win.width,
+                    self.win.height,
+                )
+                .unwrap(),
+                (0, 0),
+                buffer,
+            );
         }
     }
 
     /// Returns the screen buffer.
     #[inline]
-    pub fn get_draw_buffer(&self) -> &[RGBA8] {
-        &self.win.buffer
+    pub fn get_draw_buffer(&self) -> simple_blit::Buffer<RGBA8> {
+        simple_blit::Buffer::new(self.win.buffer.as_slice(), self.win.width, self.win.height)
+            .unwrap()
     }
 
     /// Returns the screen buffer.
-    /// 
+    ///
     /// Can be used for drawing.
     #[inline]
-    pub fn get_mut_draw_buffer(&mut self) -> &mut [RGBA8] {
-        &mut self.win.buffer
+    pub fn get_mut_draw_buffer(&mut self) -> simple_blit::BufferMut<RGBA8> {
+        simple_blit::BufferMut::new(
+            self.win.buffer.as_mut_slice(),
+            self.win.width,
+            self.win.height,
+        )
+        .unwrap()
     }
 
     /// Sets the filter mode.
-    /// 
+    ///
     /// The default one is `nearest`.
     #[inline]
     pub fn set_filter_mode(&mut self, filter: FilterMode) {
@@ -518,17 +550,17 @@ pub trait State: 'static {
     fn update(&mut self, ctx: Context);
     /// Called every frame after `update()`.
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
-    /// 
+    ///
     /// Note that when using `simple-pixels` it's still safe to draw in `update()`.
     fn draw(&mut self, ctx: Context);
 }
 
-struct Handler {
+struct Handler<S: State> {
     win: Window,
-    state: Box<dyn State>,
+    state: S,
 }
 
-impl EventHandler for Handler {
+impl<S: State> EventHandler for Handler<S> {
     fn update(&mut self, ctx: &mut GraphicsContext) {
         self.win.delta_time = self.win.instant.elapsed();
         self.win.instant = Instant::now();
@@ -540,26 +572,22 @@ impl EventHandler for Handler {
 
         self.state.update(context);
 
-        self.win.keys.retain(|_, state| {
-            match state {
-                InputState::Down => true,
-                InputState::Pressed => {
-                    *state = InputState::Down;
-                    true
-                },
-                InputState::Released => false,
+        self.win.keys.retain(|_, state| match state {
+            InputState::Down => true,
+            InputState::Pressed => {
+                *state = InputState::Down;
+                true
             }
+            InputState::Released => false,
         });
 
-        self.win.mouse_buttons.retain(|_, state| {
-            match state {
-                InputState::Down => true,
-                InputState::Pressed => {
-                    *state = InputState::Down;
-                    true
-                },
-                InputState::Released => false,
+        self.win.mouse_buttons.retain(|_, state| match state {
+            InputState::Down => true,
+            InputState::Pressed => {
+                *state = InputState::Down;
+                true
             }
+            InputState::Released => false,
         });
     }
 
@@ -598,12 +626,7 @@ impl EventHandler for Handler {
         self.win.key_mods = key_mods;
     }
 
-    fn key_up_event(
-        &mut self,
-        _ctx: &mut GraphicsContext,
-        key_code: KeyCode,
-        key_mods: KeyMods,
-    ) {
+    fn key_up_event(&mut self, _ctx: &mut GraphicsContext, key_code: KeyCode, key_mods: KeyMods) {
         self.win.keys.insert(key_code, InputState::Released);
         self.win.key_mods = key_mods;
     }
@@ -633,7 +656,7 @@ impl EventHandler for Handler {
     }
 
     fn resize_event(&mut self, _ctx: &mut GraphicsContext, width: f32, height: f32) {
-        self.win.apply_resize(width.round() as u32, height.round() as u32);
+        self.win.apply_resize(width as u32, height as u32);
     }
 }
 
@@ -650,10 +673,10 @@ pub fn start(config: Config, state: impl State) {
         ..Default::default()
     };
 
-    miniquad::start(conf, move |ctx| Box::new(
-        Handler {
+    miniquad::start(conf, move |ctx| {
+        Box::new(Handler {
             win: Window::init(ctx, config.window_width, config.window_height),
-            state: Box::new(state),
-        }
-    ));
+            state,
+        })
+    });
 }
