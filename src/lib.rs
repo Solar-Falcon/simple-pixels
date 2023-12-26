@@ -1,17 +1,16 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![warn(missing_docs)]
 
-pub extern crate rgb;
-pub extern crate simple_blit;
+pub use rgb;
+pub use simple_blit;
+use simple_blit::BlitOptions;
 
 use std::cmp::min;
 use std::time::{Duration, Instant};
 
 use fnv::FnvHashMap;
-
 use miniquad::conf::Conf;
 use miniquad::*;
-
 use rgb::{ComponentBytes, RGBA8};
 
 #[doc(no_inline)]
@@ -479,59 +478,43 @@ impl<'a> Context<'a> {
     /// Fills a rectangle with provided pixels (row-major order).
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
-    pub fn draw_pixels(&mut self, x: i32, y: i32, width: u32, height: u32, pixels: &[RGBA8]) {
-        if let Some(buffer) = simple_blit::Buffer::new(pixels, width, height) {
-            simple_blit::blit(
-                simple_blit::BufferMut::new(
-                    self.win.buffer.as_mut_slice(),
-                    self.win.width,
-                    self.win.height,
-                )
-                .unwrap(),
-                (x, y),
-                buffer,
-                (0, 0),
-                (width, height),
-            );
+    pub fn draw_pixels(
+        &mut self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        pixels: &[RGBA8],
+        opts: BlitOptions,
+    ) {
+        if let Some(buffer) = simple_blit::GenericBuffer::new(pixels, width, height) {
+            simple_blit::blit(self, (x, y), &buffer, (0, 0), (width, height), opts);
         }
     }
 
     /// Fills the entire screen buffer at once.
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
-    pub fn draw_screen(&mut self, pixels: &[RGBA8]) {
-        if let Some(buffer) = simple_blit::Buffer::new(pixels, self.win.width, self.win.height) {
-            simple_blit::blit_full(
-                simple_blit::BufferMut::new(
-                    self.win.buffer.as_mut_slice(),
-                    self.win.width,
-                    self.win.height,
-                )
-                .unwrap(),
-                (0, 0),
-                buffer,
-            );
+    pub fn draw_screen(&mut self, pixels: &[RGBA8], opts: BlitOptions) {
+        if let Some(buffer) =
+            simple_blit::GenericBuffer::new(pixels, self.win.width, self.win.height)
+        {
+            simple_blit::blit_full(self, (0, 0), &buffer, opts);
         }
     }
 
     /// Returns the screen buffer.
     #[inline]
-    pub fn get_draw_buffer(&self) -> simple_blit::Buffer<RGBA8> {
-        simple_blit::Buffer::new(self.win.buffer.as_slice(), self.win.width, self.win.height)
-            .unwrap()
+    pub fn get_draw_buffer(&self) -> &[RGBA8] {
+        &self.win.buffer
     }
 
     /// Returns the screen buffer.
     ///
     /// Can be used for drawing.
     #[inline]
-    pub fn get_mut_draw_buffer(&mut self) -> simple_blit::BufferMut<RGBA8> {
-        simple_blit::BufferMut::new(
-            self.win.buffer.as_mut_slice(),
-            self.win.width,
-            self.win.height,
-        )
-        .unwrap()
+    pub fn get_mut_draw_buffer(&mut self) -> &mut [RGBA8] {
+        &mut self.win.buffer
     }
 
     /// Sets the filter mode.
@@ -541,6 +524,30 @@ impl<'a> Context<'a> {
     pub fn set_filter_mode(&mut self, filter: FilterMode) {
         let texture = &self.win.bindings.images[0];
         texture.set_filter(self.ctx, filter);
+    }
+}
+
+impl<'a> simple_blit::Buffer<RGBA8> for Context<'a> {
+    #[inline]
+    fn width(&self) -> u32 {
+        self.win.width
+    }
+
+    #[inline]
+    fn height(&self) -> u32 {
+        self.win.height
+    }
+
+    #[inline]
+    fn get(&self, x: u32, y: u32) -> &RGBA8 {
+        &self.win.buffer[(y * self.win.width + x) as usize]
+    }
+}
+
+impl<'a> simple_blit::BufferMut<RGBA8> for Context<'a> {
+    #[inline]
+    fn get_mut(&mut self, x: u32, y: u32) -> &mut RGBA8 {
+        &mut self.win.buffer[(y * self.win.width + x) as usize]
     }
 }
 
