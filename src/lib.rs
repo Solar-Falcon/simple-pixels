@@ -6,7 +6,7 @@ pub use simple_blit;
 use simple_blit::BlitOptions;
 
 use std::cmp::min;
-use std::time::{Duration, Instant};
+use web_time::{Instant, Duration};
 
 use fnv::FnvHashMap;
 use miniquad::conf::Conf;
@@ -58,6 +58,7 @@ pub struct Config {
 }
 
 impl Default for Config {
+    #[inline]
     fn default() -> Self {
         Self {
             window_title: String::from(""),
@@ -83,6 +84,7 @@ pub struct Icon {
 }
 
 impl Icon {
+    #[inline]
     fn into_miniquad_icon(self) -> miniquad::conf::Icon {
         assert_eq!(std::mem::size_of::<RGBA8>(), 4);
 
