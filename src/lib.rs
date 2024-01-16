@@ -3,103 +3,41 @@
 
 pub use rgb;
 pub use simple_blit;
-use simple_blit::BlitOptions;
 
-use std::cmp::min;
-use web_time::{Instant, Duration};
-
-use fnv::FnvHashMap;
-use miniquad::conf::Conf;
-use miniquad::*;
+use miniquad::{
+    window, Backend, Bindings, BufferLayout, BufferSource, BufferType, BufferUsage, EventHandler,
+    MipmapFilterMode, PassAction, Pipeline, RenderingBackend, ShaderMeta, ShaderSource,
+    TextureFormat, TextureId, TextureKind, TextureParams, TextureWrap, UniformBlockLayout,
+    VertexAttribute, VertexFormat,
+};
 use rgb::{ComponentBytes, RGBA8};
+use rustc_hash::FxHashMap;
+use simple_blit::BlitOptions;
+use std::{
+    cmp::min,
+    future,
+    sync::{Arc, Mutex},
+    task::Poll,
+    time::Duration,
+};
 
 #[doc(no_inline)]
-pub use miniquad::{CursorIcon, FilterMode, KeyCode, KeyMods, MouseButton};
-
-/// Application window settings.
-#[derive(Debug)]
-pub struct Config {
-    /// Title of the window.
-    ///
-    /// Default: empty string.
-    pub window_title: String,
-
-    /// Width of the window.
-    ///
-    /// Default: 800
-    pub window_width: u32,
-
-    /// Height of the window.
-    ///
-    /// Default: 600
-    pub window_height: u32,
-
-    /// Determines if the application user can resize the window.
-    ///
-    /// Default: false
-    pub window_resizable: bool,
-
-    /// Whether the window should be created in fullscreen mode.
-    ///
-    /// Default: false
-    pub fullscreen: bool,
-
-    /// Whether the rendering canvas is full-resolution on HighDPI displays.
-    /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
-    ///
-    /// Default: false
-    pub high_dpi: bool,
-
-    /// An optional icon for the window taskbar.
-    /// Only works on Windows as of currently used version of `miniquad`.
-    ///
-    /// Default: None
-    pub icon: Option<Box<Icon>>,
-}
-
-impl Default for Config {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            window_title: String::from(""),
-            window_width: 800,
-            window_height: 600,
-            window_resizable: false,
-            fullscreen: false,
-            high_dpi: false,
-            icon: None,
-        }
-    }
-}
-
-/// Icon image in three levels of detail.
-#[derive(Debug)]
-pub struct Icon {
-    /// 16x16 image (RGBA, row-major order)
-    pub small: [RGBA8; 16 * 16],
-    /// 32x32 image (RGBA, row-major order)
-    pub medium: [RGBA8; 32 * 32],
-    /// 64x64 image (RGBA, row-major order)
-    pub large: [RGBA8; 64 * 64],
-}
-
-impl Icon {
-    #[inline]
-    fn into_miniquad_icon(self) -> miniquad::conf::Icon {
-        assert_eq!(std::mem::size_of::<RGBA8>(), 4);
-
-        miniquad::conf::Icon {
-            small: unsafe { std::mem::transmute(self.small) },
-            medium: unsafe { std::mem::transmute(self.medium) },
-            big: unsafe { std::mem::transmute(self.large) },
-        }
-    }
-}
+pub use miniquad::{
+    conf::Conf as Config, fs::Error as FsError, CursorIcon, FilterMode, KeyCode, KeyMods,
+    MouseButton,
+};
 
 #[repr(C)]
 struct Vec2 {
     x: f32,
     y: f32,
+}
+
+impl Vec2 {
+    #[inline]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
 }
 
 #[repr(C)]
@@ -112,7 +50,7 @@ const SHADER_VERT: &str = r#"#version 100
 attribute vec2 pos;
 attribute vec2 uv;
 
-varying highp vec2 texcoord;
+varying lowp vec2 texcoord;
 
 void main() {
     gl_Position = vec4(pos.x, pos.y, 0.0, 1.0);
@@ -120,7 +58,7 @@ void main() {
 }"#;
 
 const SHADER_FRAG: &str = r#"#version 100
-varying highp vec2 texcoord;
+varying lowp vec2 texcoord;
 
 uniform sampler2D tex;
 
@@ -128,9 +66,43 @@ void main() {
     gl_FragColor = texture2D(tex, texcoord);
 }"#;
 
+const SHADER_METAL: &str = r#"
+#include <metal_stdlib>
+
+using namespace metal;
+
+struct Vertex {
+    float2 pos   [[attribute(0)]];
+    float2 uv    [[attribute(1)]];
+};
+
+struct FragData {
+    float4 position [[position]];
+    float2 uv       [[user(locn0)]];
+};
+
+vertex FragData vertexShader(
+    Vertex v [[stage_in]]
+) {
+    FragData out;
+
+    out.position = float4(v.pos.x, v.pos.y, 0.0, 1.0);
+    out.uv = v.uv;
+
+    return out;
+}
+
+fragment float4 fragmentShader(
+    FragData in             [[stage_in]],
+    texture2d<float> tex    [[texture(0)]],
+    sampler texSmplr        [[sampler(0)]]
+) {
+    return tex.sample(texSmplr, in.uv);
+}
+"#;
+
 /// Input state of a mouse/keyboard button
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
 pub enum InputState {
     /// The button has just been pressed.
     Pressed,
@@ -140,62 +112,65 @@ pub enum InputState {
     Released,
 }
 
-#[derive(Debug)]
-struct Window {
-    width: u32,
-    height: u32,
+/// An object that holds the app's global state.
+pub struct Context {
+    ctx: Box<dyn RenderingBackend>,
 
     pipeline: Pipeline,
     bindings: Bindings,
 
-    instant: Instant,
-    delta_time: Duration,
+    instant: f64,
+    delta_time: f64,
 
     clear_color: RGBA8,
     buffer: Vec<RGBA8>,
+    buf_width: u32,
+    buf_height: u32,
 
-    keys: FnvHashMap<KeyCode, InputState>,
+    keys: FxHashMap<KeyCode, InputState>,
     key_mods: KeyMods,
-
     mouse_pos: (f32, f32),
-    mouse_buttons: FnvHashMap<MouseButton, InputState>,
+    mouse_buttons: FxHashMap<MouseButton, InputState>,
 }
 
-impl Window {
-    fn init(ctx: &mut GraphicsContext, width: u32, height: u32) -> Self {
-        let vertices: [Vertex; 4] = [
-            Vertex {
-                pos: Vec2 { x: -1., y: -1. },
-                uv: Vec2 { x: 0., y: 1. },
-            },
-            Vertex {
-                pos: Vec2 { x: 1., y: -1. },
-                uv: Vec2 { x: 1., y: 1. },
-            },
-            Vertex {
-                pos: Vec2 { x: 1., y: 1. },
-                uv: Vec2 { x: 1., y: 0. },
-            },
-            Vertex {
-                pos: Vec2 { x: -1., y: 1. },
-                uv: Vec2 { x: 0., y: 0. },
-            },
+impl Context {
+    fn new() -> Self {
+        let mut ctx = window::new_rendering_backend();
+
+        let (win_width, win_height) = window::screen_size();
+        let (win_width, win_height) = (win_width as u32, win_height as u32);
+
+        #[rustfmt::skip]
+        let verices: [Vertex; 4] = [
+            Vertex { pos: Vec2::new(-1., -1.), uv: Vec2::new(0., 1.) },
+            Vertex { pos: Vec2::new( 1., -1.), uv: Vec2::new(1., 1.) },
+            Vertex { pos: Vec2::new( 1.,  1.), uv: Vec2::new(1., 0.) },
+            Vertex { pos: Vec2::new(-1.,  1.), uv: Vec2::new(0., 0.) },
         ];
-        let vertex_buffer = Buffer::immutable(ctx, BufferType::VertexBuffer, &vertices);
+        let vertex_buffer = ctx.new_buffer(
+            BufferType::VertexBuffer,
+            BufferUsage::Immutable,
+            BufferSource::slice(&verices),
+        );
 
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let index_buffer = Buffer::immutable(ctx, BufferType::IndexBuffer, &indices);
-
-        let texture = Texture::new_render_texture(
-            ctx,
-            TextureParams {
-                format: TextureFormat::RGBA8,
-                wrap: TextureWrap::Clamp,
-                filter: FilterMode::Nearest,
-                width,
-                height,
-            },
+        let index_buffer = ctx.new_buffer(
+            BufferType::IndexBuffer,
+            BufferUsage::Immutable,
+            BufferSource::slice(&indices),
         );
+
+        let texture = ctx.new_render_texture(TextureParams {
+            kind: TextureKind::Texture2D,
+            format: TextureFormat::RGBA8,
+            wrap: TextureWrap::Clamp,
+            min_filter: FilterMode::Nearest,
+            mag_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::None,
+            width: win_width,
+            height: win_height,
+            allocate_mipmaps: false,
+        });
 
         let bindings = Bindings {
             vertex_buffers: vec![vertex_buffer],
@@ -208,11 +183,22 @@ impl Window {
             uniforms: UniformBlockLayout { uniforms: vec![] },
         };
 
-        let shader = Shader::new(ctx, SHADER_VERT, SHADER_FRAG, shader_meta)
-            .unwrap_or_else(|err| panic!("{}", err));
+        let shader = ctx
+            .new_shader(
+                match ctx.info().backend {
+                    Backend::OpenGl => ShaderSource::Glsl {
+                        vertex: SHADER_VERT,
+                        fragment: SHADER_FRAG,
+                    },
+                    Backend::Metal => ShaderSource::Msl {
+                        program: SHADER_METAL,
+                    },
+                },
+                shader_meta,
+            )
+            .unwrap_or_else(|err| panic!("{err}"));
 
-        let pipeline = Pipeline::new(
-            ctx,
+        let pipeline = ctx.new_pipeline(
             &[BufferLayout::default()],
             &[
                 VertexAttribute::new("pos", VertexFormat::Float2),
@@ -222,79 +208,117 @@ impl Window {
         );
 
         Self {
-            width,
-            height,
+            ctx,
 
             pipeline,
             bindings,
 
-            instant: Instant::now(),
-            delta_time: Duration::ZERO,
+            instant: miniquad::date::now(),
+            delta_time: 0.,
 
             clear_color: RGBA8::new(0, 0, 0, 255),
-            buffer: vec![RGBA8::new(0, 0, 0, 255); (width * height) as usize],
+            buffer: vec![RGBA8::new(0, 0, 0, 255); (win_width * win_height) as usize],
+            buf_width: win_width,
+            buf_height: win_height,
 
-            keys: FnvHashMap::default(),
+            keys: FxHashMap::default(),
             key_mods: KeyMods {
                 shift: false,
                 ctrl: false,
                 alt: false,
                 logo: false,
             },
-
             mouse_pos: (0., 0.),
-            mouse_buttons: FnvHashMap::default(),
+            mouse_buttons: FxHashMap::default(),
         }
     }
 
-    fn apply_resize(&mut self, new_width: u32, new_height: u32) {
-        for pix in self.buffer.iter_mut() {
-            *pix = self.clear_color;
+    #[inline]
+    fn texture(&self) -> TextureId {
+        self.bindings.images[0]
+    }
+
+    /// Load file from the path and block until its loaded.
+    /// Will use filesystem on PC and do a HTTP request on web.
+    pub fn load_file<F>(&self, path: impl AsRef<str>, on_loaded: F)
+    where
+        F: Fn(Result<Vec<u8>, FsError>) + 'static,
+    {
+        miniquad::fs::load_file(path.as_ref(), on_loaded);
+    }
+
+    /// Load file from the path and block until its loaded.
+    /// Will use filesystem on PC and do a HTTP request on web.
+    pub async fn load_file_async(&self, path: impl AsRef<str>) -> Result<Vec<u8>, FsError> {
+        let contents = Arc::new(Mutex::new(None));
+
+        {
+            let contents = contents.clone();
+
+            miniquad::fs::load_file(path.as_ref(), move |result| {
+                *contents.lock().unwrap() = Some(result);
+            });
         }
 
-        self.buffer
-            .resize((new_width * new_height) as usize, self.clear_color);
-        self.width = new_width;
-        self.height = new_height;
+        future::poll_fn(move |_ctx| {
+            let mut result = contents.lock().unwrap();
+
+            if let Some(result) = result.take() {
+                Poll::Ready(result)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
     }
-}
 
-/// An object that holds the app's global state.
-pub struct Context<'a> {
-    win: &'a mut Window,
-    ctx: &'a mut GraphicsContext,
-}
-
-impl<'a> Context<'a> {
     /// Display width.
     ///
-    /// Does not account for dpi scale.
+    /// Accounts for dpi scale.
     #[inline]
-    pub fn width(&self) -> u32 {
-        self.win.width
+    pub fn display_width(&self) -> f32 {
+        window::screen_size().0
     }
 
     /// Display height.
     ///
-    /// Does not account for dpi scale.
+    /// Accounts for dpi scale.
     #[inline]
-    pub fn height(&self) -> u32 {
-        self.win.height
+    pub fn display_height(&self) -> f32 {
+        window::screen_size().1
+    }
+
+    /// Draw buffer width.
+    #[inline]
+    pub fn buffer_width(&self) -> u32 {
+        self.buf_width
+    }
+
+    /// Draw buffer height.
+    #[inline]
+    pub fn buffer_height(&self) -> u32 {
+        self.buf_height
     }
 
     /// The dpi scaling factor (window pixels to framebuffer pixels).
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
     ///
-    /// Always 1.0 if `high_dpi` in [`Config`] is set to `false`.
+    /// Always 1.0 if `high_dpi` in `Config` is set to `false`.
     #[inline]
     pub fn dpi_scale(&self) -> f32 {
-        self.ctx.dpi_scale()
+        window::dpi_scale()
     }
 
-    /// Time passed between previous and current frame.
+    /// Time passed between previous and current frame (in seconds).
+    #[inline]
+    pub fn delta_time_secs(&self) -> f64 {
+        self.delta_time
+    }
+
+    /// Time passed between previous and current frame (as std::time::Duration).
     #[inline]
     pub fn delta_time(&self) -> Duration {
-        self.win.delta_time
+        Duration::from_secs_f64(self.delta_time)
     }
 
     /// Set clear/background color.
@@ -302,7 +326,7 @@ impl<'a> Context<'a> {
     /// The buffer isn't cleared automatically, use [`Context::clear()`] for that.
     #[inline]
     pub fn clear_color(&mut self, color: RGBA8) {
-        self.win.clear_color = color;
+        self.clear_color = color;
     }
 
     /// Returns current input state of a key or `None` if it isn't held.
@@ -310,7 +334,7 @@ impl<'a> Context<'a> {
     /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
     #[inline]
     pub fn get_key_state(&self, key: KeyCode) -> Option<InputState> {
-        self.win.keys.get(&key).copied()
+        self.keys.get(&key).copied()
     }
 
     /// Returns `true` if a key is down.
@@ -337,15 +361,28 @@ impl<'a> Context<'a> {
     /// Returns currently held key modifiers.
     #[inline]
     pub fn get_key_mods(&self) -> KeyMods {
-        self.win.key_mods
+        self.key_mods
     }
 
-    /// Returns current mouse position.
-    ///
-    /// Note that it does not account for dpi scale.
+    /// Returns current mouse position in the window.
     #[inline]
-    pub fn get_mouse_pos(&self) -> (f32, f32) {
-        self.win.mouse_pos
+    pub fn get_real_mouse_pos(&self) -> (i32, i32) {
+        let (x, y) = self.mouse_pos;
+
+        (x as _, y as _)
+    }
+
+    /// Returns the point of the buffer where the mouse is.
+    /// Differs from `get_real_mouse_pos()` when the window and the buffer have different sizes.
+    #[inline]
+    pub fn get_buffer_mouse_pos(&self) -> (i32, i32) {
+        let (x, y) = self.mouse_pos;
+        let (win_width, win_height) = window::screen_size();
+
+        (
+            (x / win_width * self.buf_width as f32) as _,
+            (y / win_height * self.buf_height as f32) as _,
+        )
     }
 
     /// Returns current mouse position rounded to the nearest integer.
@@ -353,7 +390,7 @@ impl<'a> Context<'a> {
     /// Note that it does not account for dpi scale.
     #[inline]
     pub fn get_mouse_pos_int(&self) -> (i32, i32) {
-        let (x, y) = self.win.mouse_pos;
+        let (x, y) = self.mouse_pos;
 
         (x as i32, y as i32)
     }
@@ -363,7 +400,7 @@ impl<'a> Context<'a> {
     /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
     #[inline]
     pub fn get_mouse_button_state(&self, button: MouseButton) -> Option<InputState> {
-        self.win.mouse_buttons.get(&button).copied()
+        self.mouse_buttons.get(&button).copied()
     }
 
     /// Returns `true` if a mouse button is down.
@@ -389,54 +426,60 @@ impl<'a> Context<'a> {
 
     /// Quit the application.
     #[inline]
-    pub fn quit(&mut self) {
-        self.ctx.quit();
+    pub fn quit(&self) {
+        window::request_quit();
     }
 
     /// Show or hide the mouse cursor.
     #[inline]
-    pub fn show_mouse(&mut self, shown: bool) {
-        self.ctx.show_mouse(shown);
+    pub fn show_mouse(&self, shown: bool) {
+        window::show_mouse(shown);
+    }
+
+    /// Show or hide onscreen keyboard.
+    #[inline]
+    pub fn show_keyboard(&self, shown: bool) {
+        window::show_keyboard(shown);
     }
 
     /// Set the mouse cursor icon.
     #[inline]
-    pub fn set_mouse_cursor(&mut self, cursor_icon: CursorIcon) {
-        self.ctx.set_mouse_cursor(cursor_icon);
+    pub fn set_mouse_cursor(&self, cursor_icon: CursorIcon) {
+        window::set_mouse_cursor(cursor_icon);
     }
 
     /// Set window to fullscreen or not.
     #[inline]
-    pub fn set_fullscreen(&mut self, fullscreen: bool) {
-        self.ctx.set_fullscreen(fullscreen);
+    pub fn set_fullscreen(&self, fullscreen: bool) {
+        window::set_fullscreen(fullscreen);
     }
 
     /// Get current OS clipboard value.
     #[inline]
-    pub fn get_clipboard(&mut self) -> Option<String> {
-        self.ctx.clipboard_get()
+    pub fn get_clipboard(&self) -> Option<String> {
+        window::clipboard_get()
     }
 
     /// Save value to OS clipboard.
     #[inline]
-    pub fn set_clipboard(&mut self, data: &str) {
-        self.ctx.clipboard_set(data);
+    pub fn set_clipboard(&self, data: impl AsRef<str>) {
+        window::clipboard_set(data.as_ref());
     }
 
     /// Set the application’s window size.
     ///
-    /// Note that it clears the screen buffer with the current [`Context::clear_color()`], because it needs to be resized as well.
+    /// Note: resizing the window does not resize the buffer.
+    /// Currently it's not possible to resize the buffer after creation.
     #[inline]
     pub fn set_window_size(&mut self, new_width: u32, new_height: u32) {
-        self.ctx.set_window_size(new_width, new_height);
-        self.win.apply_resize(new_width, new_height);
+        window::set_window_size(new_width, new_height);
     }
 
     /// Clear the screen buffer with the current [`Context::clear_color()`].
     #[inline]
     pub fn clear(&mut self) {
-        for pix in self.win.buffer.iter_mut() {
-            *pix = self.win.clear_color;
+        for pix in self.buffer.iter_mut() {
+            *pix = self.clear_color;
         }
     }
 
@@ -446,9 +489,8 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn draw_pixel(&mut self, x: i32, y: i32, color: RGBA8) {
         if let Some(pix) = self
-            .win
             .buffer
-            .get_mut(y as usize * self.win.width as usize + x as usize)
+            .get_mut(y as usize * self.buf_width as usize + x as usize)
         {
             *pix = color;
         }
@@ -470,9 +512,9 @@ impl<'a> Context<'a> {
             (y as u32, height)
         };
 
-        for y in y..min(y + height, self.win.height) {
-            for x in x..min(x + width, self.win.width) {
-                self.win.buffer[(y * self.win.width + x) as usize] = color;
+        for y in y..min(y + height, self.buf_height) {
+            for x in x..min(x + width, self.buf_width) {
+                self.buffer[(y * self.buf_width + x) as usize] = color;
             }
         }
     }
@@ -499,7 +541,7 @@ impl<'a> Context<'a> {
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_screen(&mut self, pixels: &[RGBA8], opts: BlitOptions) {
         if let Some(buffer) =
-            simple_blit::GenericBuffer::new(pixels, self.win.width, self.win.height)
+            simple_blit::GenericBuffer::new(pixels, self.buf_width, self.buf_height)
         {
             simple_blit::blit_full(self, (0, 0), &buffer, opts);
         }
@@ -508,7 +550,7 @@ impl<'a> Context<'a> {
     /// Returns the screen buffer.
     #[inline]
     pub fn get_draw_buffer(&self) -> &[RGBA8] {
-        &self.win.buffer
+        &self.buffer
     }
 
     /// Returns the screen buffer.
@@ -516,72 +558,70 @@ impl<'a> Context<'a> {
     /// Can be used for drawing.
     #[inline]
     pub fn get_mut_draw_buffer(&mut self) -> &mut [RGBA8] {
-        &mut self.win.buffer
+        &mut self.buffer
     }
 
-    /// Sets the filter mode.
-    ///
-    /// The default one is `nearest`.
+    /// Set the filter for the texture that is used for rendering.
     #[inline]
-    pub fn set_filter_mode(&mut self, filter: FilterMode) {
-        let texture = &self.win.bindings.images[0];
-        texture.set_filter(self.ctx, filter);
+    pub fn set_texture_filter(&mut self, filter: FilterMode) {
+        self.ctx
+            .texture_set_filter(self.texture(), filter, MipmapFilterMode::None);
     }
 }
 
-impl<'a> simple_blit::Buffer<RGBA8> for Context<'a> {
+impl simple_blit::Buffer<RGBA8> for Context {
     #[inline]
     fn width(&self) -> u32 {
-        self.win.width
+        self.buf_width
     }
 
     #[inline]
     fn height(&self) -> u32 {
-        self.win.height
+        self.buf_height
     }
 
     #[inline]
     fn get(&self, x: u32, y: u32) -> &RGBA8 {
-        &self.win.buffer[(y * self.win.width + x) as usize]
+        &self.buffer[(y * self.buf_width + x) as usize]
     }
 }
 
-impl<'a> simple_blit::BufferMut<RGBA8> for Context<'a> {
+impl simple_blit::BufferMut<RGBA8> for Context {
     #[inline]
     fn get_mut(&mut self, x: u32, y: u32) -> &mut RGBA8 {
-        &mut self.win.buffer[(y * self.win.width + x) as usize]
+        &mut self.buffer[(y * self.buf_width + x) as usize]
     }
 }
 
 /// Application state.
-pub trait State: 'static {
+pub trait App {
     /// Called every frame.
-    fn update(&mut self, ctx: Context);
+    fn update(&mut self, ctx: &mut Context);
+
     /// Called every frame after `update()`.
     /// See <https://docs.rs/miniquad/0.3.16/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
     ///
     /// Note that when using `simple-pixels` it's still safe to draw in `update()`.
-    fn draw(&mut self, ctx: Context);
+    fn draw(&mut self, ctx: &mut Context);
 }
 
-struct Handler<S: State> {
-    win: Window,
+struct Handler<S: App> {
+    ctx: Context,
     state: S,
 }
 
-impl<S: State> EventHandler for Handler<S> {
-    fn update(&mut self, ctx: &mut GraphicsContext) {
-        self.win.delta_time = self.win.instant.elapsed();
-        self.win.instant = Instant::now();
+impl<S> EventHandler for Handler<S>
+where
+    S: App,
+{
+    fn update(&mut self) {
+        let new_instant = miniquad::date::now();
+        self.ctx.delta_time = new_instant - self.ctx.instant;
+        self.ctx.instant = new_instant;
 
-        let context = Context {
-            win: &mut self.win,
-            ctx,
-        };
+        self.state.update(&mut self.ctx);
 
-        self.state.update(context);
-
-        self.win.keys.retain(|_, state| match state {
+        self.ctx.keys.retain(|_, state| match state {
             InputState::Down => true,
             InputState::Pressed => {
                 *state = InputState::Down;
@@ -590,7 +630,7 @@ impl<S: State> EventHandler for Handler<S> {
             InputState::Released => false,
         });
 
-        self.win.mouse_buttons.retain(|_, state| match state {
+        self.ctx.mouse_buttons.retain(|_, state| match state {
             InputState::Down => true,
             InputState::Pressed => {
                 *state = InputState::Down;
@@ -600,92 +640,62 @@ impl<S: State> EventHandler for Handler<S> {
         });
     }
 
-    fn draw(&mut self, ctx: &mut GraphicsContext) {
-        let context = Context {
-            win: &mut self.win,
-            ctx,
-        };
+    fn draw(&mut self) {
+        self.state.draw(&mut self.ctx);
 
-        self.state.draw(context);
+        self.ctx
+            .ctx
+            .texture_update(self.ctx.texture(), self.ctx.buffer.as_bytes());
 
-        let texture = &self.win.bindings.images[0];
-        texture.update(ctx, self.win.buffer.as_bytes());
+        self.ctx.ctx.begin_default_pass(PassAction::Nothing);
 
-        ctx.begin_default_pass(PassAction::Nothing);
+        self.ctx.ctx.apply_pipeline(&self.ctx.pipeline);
+        self.ctx.ctx.apply_bindings(&self.ctx.bindings);
 
-        ctx.apply_pipeline(&self.win.pipeline);
-        ctx.apply_bindings(&self.win.bindings);
+        self.ctx.ctx.draw(0, 6, 1);
 
-        ctx.draw(0, 6, 1);
+        self.ctx.ctx.end_render_pass();
 
-        ctx.end_render_pass();
-        ctx.commit_frame();
+        self.ctx.ctx.commit_frame();
     }
 
-    fn key_down_event(
-        &mut self,
-        _ctx: &mut GraphicsContext,
-        key_code: KeyCode,
-        key_mods: KeyMods,
-        repeat: bool,
-    ) {
+    fn key_down_event(&mut self, key_code: KeyCode, key_mods: KeyMods, repeat: bool) {
         if !repeat {
-            self.win.keys.insert(key_code, InputState::Pressed);
+            self.ctx.keys.insert(key_code, InputState::Pressed);
         }
-        self.win.key_mods = key_mods;
+
+        self.ctx.key_mods = key_mods;
     }
 
-    fn key_up_event(&mut self, _ctx: &mut GraphicsContext, key_code: KeyCode, key_mods: KeyMods) {
-        self.win.keys.insert(key_code, InputState::Released);
-        self.win.key_mods = key_mods;
+    fn key_up_event(&mut self, key_code: KeyCode, key_mods: KeyMods) {
+        self.ctx.keys.insert(key_code, InputState::Released);
+        self.ctx.key_mods = key_mods;
     }
 
-    fn mouse_motion_event(&mut self, _ctx: &mut GraphicsContext, x: f32, y: f32) {
-        self.win.mouse_pos = (x, y);
+    fn mouse_button_down_event(&mut self, button: MouseButton, _x: f32, _y: f32) {
+        self.ctx.mouse_buttons.insert(button, InputState::Pressed);
     }
 
-    fn mouse_button_down_event(
-        &mut self,
-        _ctx: &mut GraphicsContext,
-        button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
-        self.win.mouse_buttons.insert(button, InputState::Pressed);
+    fn mouse_button_up_event(&mut self, button: MouseButton, _x: f32, _y: f32) {
+        self.ctx.mouse_buttons.insert(button, InputState::Pressed);
     }
 
-    fn mouse_button_up_event(
-        &mut self,
-        _ctx: &mut GraphicsContext,
-        button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
-        self.win.mouse_buttons.insert(button, InputState::Released);
+    fn mouse_motion_event(&mut self, x: f32, y: f32) {
+        self.ctx.mouse_pos = (x, y);
     }
 
-    fn resize_event(&mut self, _ctx: &mut GraphicsContext, width: f32, height: f32) {
-        self.win.apply_resize(width as u32, height as u32);
+    fn char_event(&mut self, _character: char, key_mods: KeyMods, _repeat: bool) {
+        self.ctx.key_mods = key_mods;
     }
 }
 
 /// Start the application using provided config and state.
-pub fn start(config: Config, state: impl State) {
-    let conf = Conf {
-        window_title: config.window_title,
-        window_width: config.window_width as i32,
-        window_height: config.window_height as i32,
-        fullscreen: config.fullscreen,
-        high_dpi: config.high_dpi,
-        window_resizable: config.window_resizable,
-        icon: config.icon.map(|icon| icon.into_miniquad_icon()),
-        ..Default::default()
-    };
-
-    miniquad::start(conf, move |ctx| {
+#[inline]
+pub fn start(config: Config, state: impl App + 'static) {
+    miniquad::start(config, move || {
         Box::new(Handler {
-            win: Window::init(ctx, config.window_width, config.window_height),
+            ctx: Context::new(),
             state,
         })
-    });
+    })
 }
