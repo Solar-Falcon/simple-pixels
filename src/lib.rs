@@ -134,6 +134,21 @@ pub struct Context {
 }
 
 impl Context {
+    #[inline]
+    const fn texture_params(width: u32, height: u32) -> TextureParams {
+        TextureParams {
+            kind: TextureKind::Texture2D,
+            format: TextureFormat::RGBA8,
+            wrap: TextureWrap::Clamp,
+            min_filter: FilterMode::Nearest,
+            mag_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::None,
+            width,
+            height,
+            allocate_mipmaps: false,
+        }
+    }
+
     fn new() -> Self {
         let mut ctx = window::new_rendering_backend();
 
@@ -160,17 +175,7 @@ impl Context {
             BufferSource::slice(&indices),
         );
 
-        let texture = ctx.new_render_texture(TextureParams {
-            kind: TextureKind::Texture2D,
-            format: TextureFormat::RGBA8,
-            wrap: TextureWrap::Clamp,
-            min_filter: FilterMode::Nearest,
-            mag_filter: FilterMode::Nearest,
-            mipmap_filter: MipmapFilterMode::None,
-            width: win_width,
-            height: win_height,
-            allocate_mipmaps: false,
-        });
+        let texture = ctx.new_render_texture(Self::texture_params(win_width, win_height));
 
         let bindings = Bindings {
             vertex_buffers: vec![vertex_buffer],
@@ -236,6 +241,11 @@ impl Context {
     #[inline]
     fn texture(&self) -> TextureId {
         self.bindings.images[0]
+    }
+
+    #[inline]
+    fn set_texture(&mut self, tex: TextureId) {
+        self.bindings.images[0] = tex;
     }
 
     /// Load file from the path and block until its loaded.
@@ -468,11 +478,32 @@ impl Context {
 
     /// Set the application’s window size.
     ///
-    /// Note: resizing the window does not resize the buffer.
-    /// Currently it's not possible to resize the buffer after creation.
+    /// Note: resizing the window does not resize the drawing buffer.
+    /// It will be scaled to the whole window.
+    /// You can use [`Context::set_buffer_size()`] for resizing the buffer.
     #[inline]
     pub fn set_window_size(&mut self, new_width: u32, new_height: u32) {
         window::set_window_size(new_width, new_height);
+    }
+
+    /// Set the drawing buffer size. The buffer will be cleared.
+    ///
+    /// This doesn't change the window size.
+    /// The buffer will be scaled to the whole window.
+    pub fn set_buffer_size(&mut self, new_width: u32, new_height: u32) {
+        self.ctx.delete_texture(self.texture());
+
+        let new_texture = self
+            .ctx
+            .new_render_texture(Self::texture_params(new_width, new_height));
+        self.set_texture(new_texture);
+
+        self.buf_width = new_width;
+        self.buf_height = new_height;
+
+        self.buffer.fill(self.clear_color);
+        self.buffer
+            .resize((new_width * new_height) as usize, self.clear_color);
     }
 
     /// Clear the screen buffer with the current [`Context::clear_color()`].
