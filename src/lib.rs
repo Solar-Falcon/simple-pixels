@@ -130,6 +130,7 @@ pub struct Context {
     keys: FxHashMap<KeyCode, InputState>,
     key_mods: KeyMods,
     mouse_pos: (f32, f32),
+    mouse_wheel: (f32, f32),
     mouse_buttons: FxHashMap<MouseButton, InputState>,
 }
 
@@ -234,6 +235,7 @@ impl Context {
                 logo: false,
             },
             mouse_pos: (0., 0.),
+            mouse_wheel: (0., 0.),
             mouse_buttons: FxHashMap::default(),
         }
     }
@@ -393,6 +395,12 @@ impl Context {
             (x / win_width * self.buf_width as f32) as _,
             (y / win_height * self.buf_height as f32) as _,
         )
+    }
+
+    /// Get current mouse wheel movement.
+    #[inline]
+    pub fn get_mouse_wheel(&self) -> (f32, f32) {
+        self.mouse_wheel
     }
 
     /// Returns current input state of a mouse button or `None` if it isn't held.
@@ -642,6 +650,8 @@ where
 
         self.state.update(&mut self.ctx);
 
+        self.ctx.mouse_wheel = (0., 0.);
+
         self.ctx.keys.retain(|_, state| match state {
             InputState::Down => true,
             InputState::Pressed => {
@@ -703,6 +713,10 @@ where
 
     fn mouse_motion_event(&mut self, x: f32, y: f32) {
         self.ctx.mouse_pos = (x, y);
+    }
+
+    fn mouse_wheel_event(&mut self, x: f32, y: f32) {
+        self.ctx.mouse_wheel = (x, y);
     }
 
     fn char_event(&mut self, _character: char, key_mods: KeyMods, _repeat: bool) {
