@@ -395,16 +395,6 @@ impl Context {
         )
     }
 
-    /// Returns current mouse position rounded to the nearest integer.
-    ///
-    /// Note that it does not account for dpi scale.
-    #[inline]
-    pub fn get_mouse_pos_int(&self) -> (i32, i32) {
-        let (x, y) = self.mouse_pos;
-
-        (x as i32, y as i32)
-    }
-
     /// Returns current input state of a mouse button or `None` if it isn't held.
     ///
     /// Note that [`InputState::Released`] means that the key has **just** been released, **not** that it isn't held.
