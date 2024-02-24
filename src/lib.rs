@@ -12,9 +12,8 @@ use miniquad::{
 };
 use rgb::{ComponentBytes, RGBA8};
 use rustc_hash::FxHashMap;
-use simple_blit::BlitOptions;
+use simple_blit::GenericSurface;
 use std::{
-    cmp::min,
     future,
     sync::{Arc, Mutex},
     task::Poll,
@@ -529,50 +528,48 @@ impl Context {
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: RGBA8) {
-        let (x, width) = if x < 0 {
-            (0, width.saturating_sub(x.unsigned_abs()))
-        } else {
-            (x as u32, width)
-        };
-
-        let (y, height) = if y < 0 {
-            (0, height.saturating_sub(y.unsigned_abs()))
-        } else {
-            (y as u32, height)
-        };
-
-        for y in y..min(y + height, self.buf_height) {
-            for x in x..min(x + width, self.buf_width) {
-                self.buffer[(y * self.buf_width + x) as usize] = color;
-            }
-        }
+        simple_blit::blit_whole(
+            &mut self.as_mut_surface(),
+            simple_blit::point(x as _, y as _),
+            &simple_blit::SingleValueSurface::new(color, simple_blit::size(width, height)),
+            simple_blit::point(0, 0),
+            &[],
+        );
     }
 
     /// Fills a rectangle with provided pixels (row-major order).
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
-    pub fn draw_pixels(
-        &mut self,
-        x: i32,
-        y: i32,
-        width: u32,
-        height: u32,
-        pixels: &[RGBA8],
-        opts: BlitOptions,
-    ) {
-        if let Some(buffer) = simple_blit::GenericBuffer::new(pixels, width, height) {
-            simple_blit::blit(self, (x, y), &buffer, (0, 0), (width, height), opts);
+    pub fn draw_pixels(&mut self, x: i32, y: i32, width: u32, height: u32, pixels: &[RGBA8]) {
+        if let Some(buffer) =
+            simple_blit::GenericSurface::new(pixels, simple_blit::size(width, height))
+        {
+            simple_blit::blit(
+                &mut self.as_mut_surface(),
+                simple_blit::point(x as _, y as _),
+                &buffer,
+                simple_blit::point(0, 0),
+                simple_blit::size(width, height),
+                &[],
+            );
         }
     }
 
     /// Fills the entire screen buffer at once.
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
-    pub fn draw_screen(&mut self, pixels: &[RGBA8], opts: BlitOptions) {
-        if let Some(buffer) =
-            simple_blit::GenericBuffer::new(pixels, self.buf_width, self.buf_height)
-        {
-            simple_blit::blit_full(self, (0, 0), &buffer, opts);
+    pub fn draw_screen(&mut self, pixels: &[RGBA8]) {
+        if let Some(buffer) = simple_blit::GenericSurface::new(
+            pixels,
+            simple_blit::size(self.buf_width, self.buf_height),
+        ) {
+            simple_blit::blit_whole(
+                &mut self.as_mut_surface(),
+                simple_blit::point(0, 0),
+                &buffer,
+                simple_blit::point(0, 0),
+                &[],
+            );
         }
     }
 
@@ -590,35 +587,31 @@ impl Context {
         &mut self.buffer
     }
 
+    /// Get the draw buffer as a `simple_blit::GenericSurface`.
+    #[inline]
+    pub fn as_surface(&self) -> GenericSurface<&[RGBA8], RGBA8> {
+        GenericSurface::new(
+            &self.buffer[..],
+            simple_blit::size(self.buf_width, self.buf_height),
+        )
+        .unwrap()
+    }
+
+    /// Get the draw buffer as a mutable `simple_blit::GenericSurface`.
+    #[inline]
+    pub fn as_mut_surface(&mut self) -> GenericSurface<&mut [RGBA8], RGBA8> {
+        GenericSurface::new(
+            &mut self.buffer[..],
+            simple_blit::size(self.buf_width, self.buf_height),
+        )
+        .unwrap()
+    }
+
     /// Set the filter for the texture that is used for rendering.
     #[inline]
     pub fn set_texture_filter(&mut self, filter: FilterMode) {
         self.ctx
             .texture_set_filter(self.texture(), filter, MipmapFilterMode::None);
-    }
-}
-
-impl simple_blit::Buffer<RGBA8> for Context {
-    #[inline]
-    fn width(&self) -> u32 {
-        self.buf_width
-    }
-
-    #[inline]
-    fn height(&self) -> u32 {
-        self.buf_height
-    }
-
-    #[inline]
-    fn get(&self, x: u32, y: u32) -> &RGBA8 {
-        &self.buffer[(y * self.buf_width + x) as usize]
-    }
-}
-
-impl simple_blit::BufferMut<RGBA8> for Context {
-    #[inline]
-    fn get_mut(&mut self, x: u32, y: u32) -> &mut RGBA8 {
-        &mut self.buffer[(y * self.buf_width + x) as usize]
     }
 }
 
