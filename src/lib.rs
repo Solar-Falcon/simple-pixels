@@ -6,9 +6,9 @@ pub use simple_blit;
 
 use miniquad::{
     window, Backend, Bindings, BufferLayout, BufferSource, BufferType, BufferUsage, EventHandler,
-    MipmapFilterMode, PassAction, Pipeline, RenderingBackend, ShaderMeta, ShaderSource,
-    TextureFormat, TextureId, TextureKind, TextureParams, TextureWrap, UniformBlockLayout,
-    VertexAttribute, VertexFormat,
+    MipmapFilterMode, PassAction, Pipeline, PipelineParams, RenderingBackend, ShaderMeta,
+    ShaderSource, TextureFormat, TextureId, TextureKind, TextureParams, TextureWrap,
+    UniformBlockLayout, VertexAttribute, VertexFormat,
 };
 use rgb::{ComponentBytes, RGBA8};
 use rustc_hash::FxHashMap;
@@ -25,6 +25,10 @@ pub use miniquad::{
     conf::Conf as Config, fs::Error as FsError, CursorIcon, FilterMode, KeyCode, KeyMods,
     MouseButton,
 };
+
+#[cfg(feature = "log-impl")]
+#[doc(no_inline)]
+pub use miniquad::log;
 
 #[repr(C)]
 struct Vec2 {
@@ -210,6 +214,7 @@ impl Context {
                 VertexAttribute::new("uv", VertexFormat::Float2),
             ],
             shader,
+            PipelineParams::default(),
         );
 
         Self {

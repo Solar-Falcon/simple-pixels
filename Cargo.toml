@@ -1,6 +1,6 @@
 [package]
 name = "simple-pixels"
-version = "0.12.0"
+version = "0.12.1"
 description = "Create a window and throw some pixels on it without accessing low-level stuff, carrying tons of dependencies or linking C libraries"
 authors = ["Solar-Falcon"]
 edition = "2021"
@@ -10,7 +10,11 @@ repository = "https://github.com/Solar-Falcon/simple-pixels"
 categories = ["rendering::engine"]
 
 [dependencies]
-miniquad = "=0.4.0-alpha.10"
+miniquad = "0.4"
 rgb = "0.8"
 rustc-hash = "1"
 simple-blit = "1"
+
+[features]
+default = []
+log-impl = ["miniquad/log-impl"]
