@@ -26,9 +26,12 @@ pub use miniquad::{
     MouseButton,
 };
 
+/// `miniquad`'s simple logging implementation re-exported.
 #[cfg(feature = "log-impl")]
-#[doc(no_inline)]
-pub use miniquad::log;
+pub mod log {
+    pub use miniquad::log::Level;
+    pub use miniquad::{debug, error, info, trace, warn};
+}
 
 #[repr(C)]
 struct Vec2 {
