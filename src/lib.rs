@@ -30,7 +30,7 @@ pub use miniquad::{
 #[cfg(feature = "log-impl")]
 pub mod log {
     pub use miniquad::log::Level;
-    pub use miniquad::{debug, error, info, trace, warn};
+    pub use miniquad::{debug, error, info, trace, warn, log};
 }
 
 #[repr(C)]
@@ -356,6 +356,12 @@ impl Context {
         self.keys.get(&key).copied()
     }
 
+    /// Returns all keys that are down or have just been pressed/released.
+    #[inline]
+    pub fn get_all_keys(&self) -> &FxHashMap<KeyCode, InputState> {
+        &self.keys
+    }
+
     /// Returns `true` if a key is down.
     #[inline]
     pub fn is_key_down(&self, key: KeyCode) -> bool {
@@ -416,6 +422,12 @@ impl Context {
     #[inline]
     pub fn get_mouse_button_state(&self, button: MouseButton) -> Option<InputState> {
         self.mouse_buttons.get(&button).copied()
+    }
+
+    /// Returns all mouse buttons that are down or have just been pressed/released.
+    #[inline]
+    pub fn get_all_mouse_buttons(&self) -> &FxHashMap<MouseButton, InputState> {
+        &self.mouse_buttons
     }
 
     /// Returns `true` if a mouse button is down.
@@ -629,7 +641,7 @@ pub trait App {
     fn update(&mut self, ctx: &mut Context);
 
     /// Called every frame after `update()`.
-    /// See <https://docs.rs/miniquad/0.3.16/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
+    /// See <https://docs.rs/miniquad/latest/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
     ///
     /// Note that when using `simple-pixels` it's still safe to draw in `update()`.
     fn draw(&mut self, ctx: &mut Context);
