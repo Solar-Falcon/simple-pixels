@@ -30,7 +30,7 @@ pub use miniquad::{
 #[cfg(feature = "log-impl")]
 pub mod log {
     pub use miniquad::log::Level;
-    pub use miniquad::{debug, error, info, trace, warn, log};
+    pub use miniquad::{debug, error, info, log, trace, warn};
 }
 
 #[repr(C)]
