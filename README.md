@@ -10,7 +10,3 @@ This may not be the most efficient rendering method, but it should fit for an em
 * Safety.
 
 This crate is built on [`miniquad`](https://crates.io/crates/miniquad). It should support all platforms that `miniquad` supports.
-
-## Cargo features
-
-* `log-impl`: enables `miniquad`'s "log-impl" feature and re-exports it's logger.

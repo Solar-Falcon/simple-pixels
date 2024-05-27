@@ -1,14 +1,16 @@
 #![doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md"))]
 #![warn(missing_docs)]
 
+pub use miniquad;
 pub use rgb;
 pub use simple_blit;
 
 use miniquad::{
-    window, Backend, Bindings, BufferLayout, BufferSource, BufferType, BufferUsage, EventHandler,
-    MipmapFilterMode, PassAction, Pipeline, PipelineParams, RenderingBackend, ShaderMeta,
-    ShaderSource, TextureFormat, TextureId, TextureKind, TextureParams, TextureWrap,
-    UniformBlockLayout, VertexAttribute, VertexFormat,
+    conf::Conf, window, Backend, Bindings, BufferLayout, BufferSource, BufferType, BufferUsage,
+    CursorIcon, EventHandler, FilterMode, KeyCode, KeyMods, MipmapFilterMode, MouseButton,
+    PassAction, Pipeline, PipelineParams, RenderingBackend, ShaderMeta, ShaderSource,
+    TextureFormat, TextureId, TextureKind, TextureParams, TextureWrap, UniformBlockLayout,
+    VertexAttribute, VertexFormat,
 };
 use rgb::{ComponentBytes, RGBA8};
 use rustc_hash::FxHashMap;
@@ -19,19 +21,6 @@ use std::{
     task::Poll,
     time::Duration,
 };
-
-#[doc(no_inline)]
-pub use miniquad::{
-    conf::Conf as Config, fs::Error as FsError, CursorIcon, FilterMode, KeyCode, KeyMods,
-    MouseButton,
-};
-
-/// `miniquad`'s simple logging implementation re-exported.
-#[cfg(feature = "log-impl")]
-pub mod log {
-    pub use miniquad::log::Level;
-    pub use miniquad::{debug, error, info, log, trace, warn};
-}
 
 #[repr(C)]
 struct Vec2 {
@@ -261,14 +250,17 @@ impl Context {
     /// Will use filesystem on PC and do a HTTP request on web.
     pub fn load_file<F>(&self, path: impl AsRef<str>, on_loaded: F)
     where
-        F: Fn(Result<Vec<u8>, FsError>) + 'static,
+        F: Fn(Result<Vec<u8>, miniquad::fs::Error>) + 'static,
     {
         miniquad::fs::load_file(path.as_ref(), on_loaded);
     }
 
     /// Load file from the path and block until its loaded.
     /// Will use filesystem on PC and do a HTTP request on web.
-    pub async fn load_file_async(&self, path: impl AsRef<str>) -> Result<Vec<u8>, FsError> {
+    pub async fn load_file_async(
+        &self,
+        path: impl AsRef<str>,
+    ) -> Result<Vec<u8>, miniquad::fs::Error> {
         let contents = Arc::new(Mutex::new(None));
 
         {
@@ -633,6 +625,18 @@ impl Context {
         self.ctx
             .texture_set_filter(self.texture(), filter, MipmapFilterMode::None);
     }
+
+    /// Get the underlying [`RenderingBackend`](https://docs.rs/miniquad/latest/miniquad/graphics/trait.RenderingBackend.html).
+    #[inline]
+    pub fn get_rendering_backend(&self) -> &dyn RenderingBackend {
+        &*self.ctx
+    }
+
+    /// Get the underlying [`RenderingBackend`](https://docs.rs/miniquad/latest/miniquad/graphics/trait.RenderingBackend.html).
+    #[inline]
+    pub fn get_mut_rendering_backend(&mut self) -> &mut dyn RenderingBackend {
+        &mut *self.ctx
+    }
 }
 
 /// Application state.
@@ -642,8 +646,6 @@ pub trait App {
 
     /// Called every frame after `update()`.
     /// See <https://docs.rs/miniquad/latest/miniquad/trait.EventHandler.html#tymethod.update> for specifics.
-    ///
-    /// Note that when using `simple-pixels` it's still safe to draw in `update()`.
     fn draw(&mut self, ctx: &mut Context);
 }
 
@@ -739,7 +741,7 @@ where
 
 /// Start the application using provided config and state.
 #[inline]
-pub fn start(config: Config, state: impl App + 'static) {
+pub fn start(config: Conf, state: impl App + 'static) {
     miniquad::start(config, move || {
         Box::new(Handler {
             ctx: Context::new(),
