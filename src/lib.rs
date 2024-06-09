@@ -14,7 +14,7 @@ use miniquad::{
 };
 use rgb::{ComponentBytes, RGBA8};
 use rustc_hash::FxHashMap;
-use simple_blit::GenericSurface;
+use simple_blit::{GenericSurface, Surface};
 use std::{
     future,
     sync::{Arc, Mutex},
@@ -540,11 +540,10 @@ impl Context {
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: RGBA8) {
-        simple_blit::blit_whole(
-            &mut self.as_mut_surface(),
-            simple_blit::point(x as _, y as _),
-            &simple_blit::SingleValueSurface::new(color, simple_blit::size(width, height)),
-            simple_blit::point(0, 0),
+        simple_blit::blit(
+            self.as_mut_surface()
+                .offset_surface_mut(simple_blit::point(x as _, y as _)),
+            simple_blit::SingleValueSurface::new(color, simple_blit::size(width, height)),
             &[],
         );
     }
@@ -557,11 +556,9 @@ impl Context {
             simple_blit::GenericSurface::new(pixels, simple_blit::size(width, height))
         {
             simple_blit::blit(
-                &mut self.as_mut_surface(),
-                simple_blit::point(x as _, y as _),
-                &buffer,
-                simple_blit::point(0, 0),
-                simple_blit::size(width, height),
+                self.as_mut_surface()
+                    .offset_surface_mut(simple_blit::point(x as _, y as _)),
+                buffer.sub_surface(simple_blit::point(0, 0), simple_blit::size(width, height)),
                 &[],
             );
         }
@@ -575,13 +572,7 @@ impl Context {
             pixels,
             simple_blit::size(self.buf_width, self.buf_height),
         ) {
-            simple_blit::blit_whole(
-                &mut self.as_mut_surface(),
-                simple_blit::point(0, 0),
-                &buffer,
-                simple_blit::point(0, 0),
-                &[],
-            );
+            simple_blit::blit(self.as_mut_surface(), buffer, &[]);
         }
     }
 
