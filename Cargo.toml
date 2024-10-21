@@ -10,7 +10,7 @@ repository = "https://github.com/Solar-Falcon/simple-pixels"
 categories = ["rendering::engine"]
 
 [dependencies]
-miniquad = "0.4"
+miniquad = "=0.4.6"
 rgb = "0.8"
 rustc-hash = "2"
 simple-blit = "2"

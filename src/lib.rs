@@ -131,7 +131,7 @@ pub struct Context {
 
 impl Context {
     #[inline]
-    const fn texture_params(width: u32, height: u32) -> TextureParams {
+    fn texture_params(width: u32, height: u32) -> TextureParams {
         TextureParams {
             kind: TextureKind::Texture2D,
             format: TextureFormat::RGBA8,
@@ -141,7 +141,7 @@ impl Context {
             mipmap_filter: MipmapFilterMode::None,
             width,
             height,
-            allocate_mipmaps: false,
+            ..Default::default()
         }
     }
 
