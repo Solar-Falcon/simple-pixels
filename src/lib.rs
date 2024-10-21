@@ -17,7 +17,7 @@ use rustc_hash::FxHashMap;
 use simple_blit::{GenericSurface, Surface};
 use std::{
     future,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     task::Poll,
     time::Duration,
 };
@@ -109,7 +109,7 @@ pub enum InputState {
 
 /// An object that holds the app's global state.
 pub struct Context {
-    ctx: Box<dyn RenderingBackend>,
+    backend: Box<dyn RenderingBackend>,
 
     pipeline: Pipeline,
     bindings: Bindings,
@@ -118,7 +118,7 @@ pub struct Context {
     delta_time: f64,
 
     clear_color: RGBA8,
-    buffer: Vec<RGBA8>,
+    framebuffer: Vec<RGBA8>,
     buf_width: u32,
     buf_height: u32,
 
@@ -146,7 +146,7 @@ impl Context {
     }
 
     fn new() -> Self {
-        let mut ctx = window::new_rendering_backend();
+        let mut backend = window::new_rendering_backend();
 
         let (win_width, win_height) = window::screen_size();
         let (win_width, win_height) = (win_width as u32, win_height as u32);
@@ -158,20 +158,20 @@ impl Context {
             Vertex { pos: Vec2::new( 1.,  1.), uv: Vec2::new(1., 0.) },
             Vertex { pos: Vec2::new(-1.,  1.), uv: Vec2::new(0., 0.) },
         ];
-        let vertex_buffer = ctx.new_buffer(
+        let vertex_buffer = backend.new_buffer(
             BufferType::VertexBuffer,
             BufferUsage::Immutable,
             BufferSource::slice(&verices),
         );
 
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let index_buffer = ctx.new_buffer(
+        let index_buffer = backend.new_buffer(
             BufferType::IndexBuffer,
             BufferUsage::Immutable,
             BufferSource::slice(&indices),
         );
 
-        let texture = ctx.new_render_texture(Self::texture_params(win_width, win_height));
+        let texture = backend.new_render_texture(Self::texture_params(win_width, win_height));
 
         let bindings = Bindings {
             vertex_buffers: vec![vertex_buffer],
@@ -184,9 +184,9 @@ impl Context {
             uniforms: UniformBlockLayout { uniforms: vec![] },
         };
 
-        let shader = ctx
+        let shader = backend
             .new_shader(
-                match ctx.info().backend {
+                match backend.info().backend {
                     Backend::OpenGl => ShaderSource::Glsl {
                         vertex: SHADER_VERT,
                         fragment: SHADER_FRAG,
@@ -199,7 +199,7 @@ impl Context {
             )
             .unwrap_or_else(|err| panic!("{err}"));
 
-        let pipeline = ctx.new_pipeline(
+        let pipeline = backend.new_pipeline(
             &[BufferLayout::default()],
             &[
                 VertexAttribute::new("pos", VertexFormat::Float2),
@@ -210,7 +210,7 @@ impl Context {
         );
 
         Self {
-            ctx,
+            backend,
 
             pipeline,
             bindings,
@@ -219,7 +219,7 @@ impl Context {
             delta_time: 0.,
 
             clear_color: RGBA8::new(0, 0, 0, 255),
-            buffer: vec![RGBA8::new(0, 0, 0, 255); (win_width * win_height) as usize],
+            framebuffer: vec![RGBA8::new(0, 0, 0, 255); (win_width * win_height) as usize],
             buf_width: win_width,
             buf_height: win_height,
 
@@ -246,8 +246,9 @@ impl Context {
         self.bindings.images[0] = tex;
     }
 
-    /// Load file from the path and block until its loaded.
-    /// Will use filesystem on PC and do a HTTP request on web.
+    /// Load file from the filesystem (desktop) or do an HTTP request (web).
+    ///
+    /// `path` is a filesystem path on PC and an URL on web.
     pub fn load_file<F>(&self, path: impl AsRef<str>, on_loaded: F)
     where
         F: Fn(Result<Vec<u8>, miniquad::fs::Error>) + 'static,
@@ -255,8 +256,9 @@ impl Context {
         miniquad::fs::load_file(path.as_ref(), on_loaded);
     }
 
-    /// Load file from the path and block until its loaded.
-    /// Will use filesystem on PC and do a HTTP request on web.
+    /// Load file from the filesystem (desktop) or do an HTTP request (web).
+    ///
+    /// `path` is a filesystem path on PC and an URL on web.
     pub async fn load_file_async(
         &self,
         path: impl AsRef<str>,
@@ -283,7 +285,25 @@ impl Context {
         .await
     }
 
-    /// Display width.
+    /// Load file from the filesystem (desktop) or do an HTTP request (web).
+    ///
+    /// `path` is a filesystem path on PC and an URL on web.
+    /// The result is sent to the `Receiver`.
+    #[inline]
+    pub fn load_file_channel(
+        &self,
+        path: impl AsRef<str>,
+    ) -> mpsc::Receiver<Result<Vec<u8>, miniquad::fs::Error>> {
+        let (sender, receiver) = mpsc::sync_channel(1);
+
+        miniquad::fs::load_file(path.as_ref(), move |result| {
+            let _ = sender.try_send(result);
+        });
+
+        receiver
+    }
+
+    /// Display width (in screen coordinates).
     ///
     /// Accounts for dpi scale.
     #[inline]
@@ -291,7 +311,7 @@ impl Context {
         window::screen_size().0
     }
 
-    /// Display height.
+    /// Display height (in screen coordinates).
     ///
     /// Accounts for dpi scale.
     #[inline]
@@ -299,20 +319,20 @@ impl Context {
         window::screen_size().1
     }
 
-    /// Draw buffer width.
+    /// Framebuffer width (in pixels).
     #[inline]
     pub fn buffer_width(&self) -> u32 {
         self.buf_width
     }
 
-    /// Draw buffer height.
+    /// Framebuffer height (in pixels).
     #[inline]
     pub fn buffer_height(&self) -> u32 {
         self.buf_height
     }
 
-    /// The dpi scaling factor (window pixels to framebuffer pixels).
-    /// See <https://docs.rs/miniquad/0.3.16/miniquad/conf/index.html#high-dpi-rendering> for details.
+    /// The dpi scaling factor (screen coords to framebuffer pixels).
+    /// See <https://docs.rs/miniquad/latest/miniquad/conf/index.html#high-dpi-rendering> for details.
     ///
     /// Always 1.0 if `high_dpi` in `Config` is set to `false`.
     #[inline]
@@ -326,7 +346,7 @@ impl Context {
         self.delta_time
     }
 
-    /// Time passed between previous and current frame (as std::time::Duration).
+    /// Time passed between previous and current frame (as [`std::time::Duration`]).
     #[inline]
     pub fn delta_time(&self) -> Duration {
         Duration::from_secs_f64(self.delta_time)
@@ -334,7 +354,7 @@ impl Context {
 
     /// Set clear/background color.
     ///
-    /// The buffer isn't cleared automatically, use [`Context::clear()`] for that.
+    /// The framebuffer isn't cleared automatically, use [`Context::clear()`] for that.
     #[inline]
     pub fn clear_color(&mut self, color: RGBA8) {
         self.clear_color = color;
@@ -381,18 +401,15 @@ impl Context {
         self.key_mods
     }
 
-    /// Returns current mouse position in the window.
+    /// Returns current mouse position in the window (in screen coords).
     #[inline]
-    pub fn get_real_mouse_pos(&self) -> (i32, i32) {
-        let (x, y) = self.mouse_pos;
-
-        (x as _, y as _)
+    pub fn get_screen_mouse_pos(&self) -> (f32, f32) {
+        self.mouse_pos
     }
 
-    /// Returns the point of the buffer where the mouse is.
-    /// Differs from `get_real_mouse_pos()` when the window and the buffer have different sizes.
+    /// Returns current mouse position in the window (in framebuffer pixels).
     #[inline]
-    pub fn get_buffer_mouse_pos(&self) -> (i32, i32) {
+    pub fn get_framebuffer_mouse_pos(&self) -> (i32, i32) {
         let (x, y) = self.mouse_pos;
         let (win_width, win_height) = window::screen_size();
 
@@ -455,7 +472,7 @@ impl Context {
         window::show_mouse(shown);
     }
 
-    /// Show or hide onscreen keyboard.
+    /// Show or hide onscreen keyboard. This only works on Android.
     #[inline]
     pub fn show_keyboard(&self, shown: bool) {
         window::show_keyboard(shown);
@@ -485,40 +502,42 @@ impl Context {
         window::clipboard_set(data.as_ref());
     }
 
-    /// Set the application’s window size.
+    /// Set the application's window size.
     ///
-    /// Note: resizing the window does not resize the drawing buffer.
+    /// Note: resizing the window does not resize the framebuffer.
     /// It will be scaled to the whole window.
-    /// You can use [`Context::set_buffer_size()`] for resizing the buffer.
+    /// You can use [`Context::set_framebuffer_size()`] for resizing the framebuffer.
     #[inline]
     pub fn set_window_size(&mut self, new_width: u32, new_height: u32) {
         window::set_window_size(new_width, new_height);
     }
 
-    /// Set the drawing buffer size. The buffer will be cleared.
+    /// Set the framebuffer size. The buffer will be cleared.
     ///
     /// This doesn't change the window size.
-    /// The buffer will be scaled to the whole window.
-    pub fn set_buffer_size(&mut self, new_width: u32, new_height: u32) {
-        self.ctx.delete_texture(self.texture());
+    /// The framebuffer will be scaled to the whole window.
+    pub fn set_framebuffer_size(&mut self, new_width: u32, new_height: u32) {
+        // miniquad's `texture_resize` is currently unimplemented on Metal backend so we're doing this awkward dance
+
+        self.backend.delete_texture(self.texture());
 
         let new_texture = self
-            .ctx
+            .backend
             .new_render_texture(Self::texture_params(new_width, new_height));
         self.set_texture(new_texture);
 
         self.buf_width = new_width;
         self.buf_height = new_height;
 
-        self.buffer.fill(self.clear_color);
-        self.buffer
+        self.framebuffer.fill(self.clear_color);
+        self.framebuffer
             .resize((new_width * new_height) as usize, self.clear_color);
     }
 
-    /// Clear the screen buffer with the current [`Context::clear_color()`].
+    /// Clear the screen framebuffer with the current [`Context::clear_color()`].
     #[inline]
     pub fn clear(&mut self) {
-        for pix in self.buffer.iter_mut() {
+        for pix in self.framebuffer.iter_mut() {
             *pix = self.clear_color;
         }
     }
@@ -529,7 +548,7 @@ impl Context {
     #[inline]
     pub fn draw_pixel(&mut self, x: i32, y: i32, color: RGBA8) {
         if let Some(pix) = self
-            .buffer
+            .framebuffer
             .get_mut(y as usize * self.buf_width as usize + x as usize)
         {
             *pix = color;
@@ -542,29 +561,27 @@ impl Context {
     pub fn draw_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: RGBA8) {
         simple_blit::blit(
             self.as_mut_surface()
-                .offset_surface_mut(simple_blit::point(x as _, y as _)),
-            simple_blit::SingleValueSurface::new(color, simple_blit::size(width, height)),
+                .offset_surface_mut([x as u32, y as _].into()),
+            simple_blit::SingleValueSurface::new(color, [width, height].into()),
             &[],
         );
     }
 
-    /// Fills a rectangle with provided pixels (row-major order).
+    /// Fill a rectangle with provided pixels (row-major order).
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_pixels(&mut self, x: i32, y: i32, width: u32, height: u32, pixels: &[RGBA8]) {
-        if let Some(buffer) =
-            simple_blit::GenericSurface::new(pixels, simple_blit::size(width, height))
-        {
+        if let Some(buffer) = simple_blit::GenericSurface::new(pixels, [width, height].into()) {
             simple_blit::blit(
                 self.as_mut_surface()
-                    .offset_surface_mut(simple_blit::point(x as _, y as _)),
-                buffer.sub_surface(simple_blit::point(0, 0), simple_blit::size(width, height)),
+                    .offset_surface_mut([x as u32, y as _].into()),
+                buffer.sub_surface([0, 0].into(), [width, height].into()),
                 &[],
             );
         }
     }
 
-    /// Fills the entire screen buffer at once.
+    /// Fill the entire screen framebuffer at once.
     ///
     /// Does not panic if a part of the rectangle isn't on screen, just draws the part that is.
     pub fn draw_screen(&mut self, pixels: &[RGBA8]) {
@@ -576,35 +593,35 @@ impl Context {
         }
     }
 
-    /// Returns the screen buffer.
+    /// Returns the framebuffer's contents.
     #[inline]
     pub fn get_draw_buffer(&self) -> &[RGBA8] {
-        &self.buffer
+        &self.framebuffer
     }
 
-    /// Returns the screen buffer.
+    /// Returns the framebuffer's contents.
     ///
     /// Can be used for drawing.
     #[inline]
     pub fn get_mut_draw_buffer(&mut self) -> &mut [RGBA8] {
-        &mut self.buffer
+        &mut self.framebuffer
     }
 
-    /// Get the draw buffer as a `simple_blit::GenericSurface`.
+    /// Get the draw framebuffer as a [`simple_blit::GenericSurface`].
     #[inline]
     pub fn as_surface(&self) -> GenericSurface<&[RGBA8], RGBA8> {
         GenericSurface::new(
-            &self.buffer[..],
+            &self.framebuffer[..],
             simple_blit::size(self.buf_width, self.buf_height),
         )
         .unwrap()
     }
 
-    /// Get the draw buffer as a mutable `simple_blit::GenericSurface`.
+    /// Get the draw framebuffer as a mutable [`simple_blit::GenericSurface`].
     #[inline]
     pub fn as_mut_surface(&mut self) -> GenericSurface<&mut [RGBA8], RGBA8> {
         GenericSurface::new(
-            &mut self.buffer[..],
+            &mut self.framebuffer[..],
             simple_blit::size(self.buf_width, self.buf_height),
         )
         .unwrap()
@@ -613,20 +630,20 @@ impl Context {
     /// Set the filter for the texture that is used for rendering.
     #[inline]
     pub fn set_texture_filter(&mut self, filter: FilterMode) {
-        self.ctx
+        self.backend
             .texture_set_filter(self.texture(), filter, MipmapFilterMode::None);
     }
 
     /// Get the underlying [`RenderingBackend`](https://docs.rs/miniquad/latest/miniquad/graphics/trait.RenderingBackend.html).
     #[inline]
     pub fn get_rendering_backend(&self) -> &dyn RenderingBackend {
-        &*self.ctx
+        &*self.backend
     }
 
     /// Get the underlying [`RenderingBackend`](https://docs.rs/miniquad/latest/miniquad/graphics/trait.RenderingBackend.html).
     #[inline]
     pub fn get_mut_rendering_backend(&mut self) -> &mut dyn RenderingBackend {
-        &mut *self.ctx
+        &mut *self.backend
     }
 }
 
@@ -681,21 +698,22 @@ where
         self.state.draw(&mut self.ctx);
 
         self.ctx
-            .ctx
-            .texture_update(self.ctx.texture(), self.ctx.buffer.as_bytes());
+            .backend
+            .texture_update(self.ctx.texture(), self.ctx.framebuffer.as_bytes());
 
-        self.ctx.ctx.begin_default_pass(PassAction::Nothing);
+        self.ctx.backend.begin_default_pass(PassAction::Nothing);
 
-        self.ctx.ctx.apply_pipeline(&self.ctx.pipeline);
-        self.ctx.ctx.apply_bindings(&self.ctx.bindings);
+        self.ctx.backend.apply_pipeline(&self.ctx.pipeline);
+        self.ctx.backend.apply_bindings(&self.ctx.bindings);
 
-        self.ctx.ctx.draw(0, 6, 1);
+        self.ctx.backend.draw(0, 6, 1);
 
-        self.ctx.ctx.end_render_pass();
+        self.ctx.backend.end_render_pass();
 
-        self.ctx.ctx.commit_frame();
+        self.ctx.backend.commit_frame();
     }
 
+    #[inline]
     fn key_down_event(&mut self, key_code: KeyCode, key_mods: KeyMods, repeat: bool) {
         if !repeat {
             self.ctx.keys.insert(key_code, InputState::Pressed);
@@ -704,27 +722,33 @@ where
         self.ctx.key_mods = key_mods;
     }
 
+    #[inline]
     fn key_up_event(&mut self, key_code: KeyCode, key_mods: KeyMods) {
         self.ctx.keys.insert(key_code, InputState::Released);
         self.ctx.key_mods = key_mods;
     }
 
+    #[inline]
     fn mouse_button_down_event(&mut self, button: MouseButton, _x: f32, _y: f32) {
         self.ctx.mouse_buttons.insert(button, InputState::Pressed);
     }
 
+    #[inline]
     fn mouse_button_up_event(&mut self, button: MouseButton, _x: f32, _y: f32) {
         self.ctx.mouse_buttons.insert(button, InputState::Pressed);
     }
 
+    #[inline]
     fn mouse_motion_event(&mut self, x: f32, y: f32) {
         self.ctx.mouse_pos = (x, y);
     }
 
+    #[inline]
     fn mouse_wheel_event(&mut self, x: f32, y: f32) {
         self.ctx.mouse_wheel = (x, y);
     }
 
+    #[inline]
     fn char_event(&mut self, _character: char, key_mods: KeyMods, _repeat: bool) {
         self.ctx.key_mods = key_mods;
     }
